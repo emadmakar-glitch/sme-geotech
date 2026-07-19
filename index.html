@@ -32,8 +32,9 @@
   /* module chips */
   .mods { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
   .mod { font-size: 10px; padding: 3px 9px; border-radius: 10px; border: 1px solid var(--border);
-         color: #99a; background: #f5f6fa; }
-  .mod.on { border-color: var(--navy); color: var(--navy); font-weight: bold; background: #fff; }
+         color: #99a; background: #f5f6fa; cursor: pointer; user-select: none; }
+  .mod:hover { border-color: var(--navy); color: var(--navy); }
+  .mod.on { border-color: var(--navy); color: #fff; font-weight: bold; background: var(--navy); }
 
   .btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   button {
@@ -187,6 +188,29 @@
   .p-ol, .p-oh { background: repeating-linear-gradient(0deg,#fff 0 4px,#333 4px 5px); }
   .p-pt     { background: repeating-linear-gradient(0deg,#fff 0 3px,#2e5c2e 3px 4px); }
 
+  /* ================= LAB SHEETS ================= */
+  .labttl { border: 2px solid #000; text-align: center; padding: 7px 4px; }
+  .labttl .t1 { font-size: 18px; font-weight: bold; letter-spacing: .5px; }
+  .labttl .t2 { font-size: 11px; margin-top: 1px; }
+  .labinfo { border: 2px solid #000; border-top: none; display: grid; grid-template-columns: 1fr 1fr;
+             font-size: 11px; margin-bottom: 12px; }
+  .labinfo .cell { display: flex; border-top: 1px solid #000; }
+  .labinfo .cell:nth-child(-n+2) { border-top: none; }
+  .labinfo .cell:nth-child(odd) { border-right: 1px solid #000; }
+  .labinfo .cell.wide { grid-column: 1 / -1; border-right: none; }
+  .labinfo .k { font-weight: bold; padding: 2px 6px; white-space: nowrap; }
+  .labinfo .v { padding: 2px 6px; flex: 1; }
+  .labtbl { width: 100%; border-collapse: collapse; font-size: 10.5px; margin: 10px 0; }
+  .labtbl th, .labtbl td { border: 1px solid #000; padding: 3px 6px; text-align: center; }
+  .labtbl th { background: #eef1f6; font-size: 10px; }
+  .labtbl td.l, .labtbl th.l { text-align: left; }
+  .plotwrap { margin: 6px 0 4px; text-align: center; }
+  .resbox { border: 2px solid #000; padding: 6px 12px; font-size: 11.5px; display: inline-block;
+            margin: 4px 0 8px; text-align: left; }
+  .resbox b { font-size: 12px; }
+  .labrem { font-size: 10.5px; margin: 8px 0; }
+  .labfoot { position: absolute; bottom: 24px; left: 38px; right: 38px; }
+
   /* ================= RESPONSIVE ================= */
   @media (max-width: 980px) {
     #app { flex-direction: column; }
@@ -216,12 +240,12 @@
     <h1>SME Geotech Suite</h1>
     <p class="sub">San Mina Engineering, Inc. — one project file per job. Fill in the form; sheets update live.</p>
 
-    <div class="mods">
-      <span class="mod on">Boring Logs</span>
-      <span class="mod" title="Coming soon">Expansion Index</span>
-      <span class="mod" title="Coming soon">Sieve Analysis</span>
-      <span class="mod" title="Coming soon">Proctor</span>
-      <span class="mod" title="Coming soon">Direct Shear</span>
+    <div class="mods" id="modChips">
+      <span class="mod on" data-mod="boring" onclick="setMod('boring')">Boring Logs</span>
+      <span class="mod" data-mod="ei" onclick="setMod('ei')">Expansion Index</span>
+      <span class="mod" data-mod="sieve" onclick="setMod('sieve')">Sieve Analysis</span>
+      <span class="mod" data-mod="proctor" onclick="setMod('proctor')">Proctor</span>
+      <span class="mod" data-mod="shear" onclick="setMod('shear')">Direct Shear</span>
     </div>
 
     <div class="btnrow">
@@ -232,8 +256,8 @@
       <input type="file" id="importfile" accept=".json,application/json" style="display:none" onchange="importJSON(event)">
     </div>
     <div class="btnrow">
-      <button onclick="window.print()">🖨 Print Boring</button>
-      <button class="sec" onclick="printAllBorings()">🖨 Print All Borings</button>
+      <button id="btnPrint1" onclick="window.print()">🖨 Print Boring</button>
+      <button class="sec" id="btnPrint2" onclick="printAllCurrent()">🖨 Print All Borings</button>
       <button class="sec" onclick="loadExample()">Load Example</button>
     </div>
     <p id="statusline"></p>
@@ -249,6 +273,7 @@
       </div>
     </details>
 
+    <div id="boringPanel">
     <details open>
       <summary>Borings in this Project</summary>
       <div class="sect">
@@ -312,6 +337,9 @@
     </details>
 
     <p class="hint">Tip: use **double asterisks** in descriptions for <b>bold</b> soil names. Graphic symbol is chosen automatically from the USCS class — or pick one manually. Shortcuts: Ctrl/Cmd-S save, Ctrl/Cmd-O open. Your work also auto-saves in this browser as a draft.</p>
+    </div><!-- /boringPanel -->
+
+    <div id="labPanel" style="display:none"></div>
   </div>
 
   <!-- ======================= PREVIEW ======================= -->
@@ -333,6 +361,8 @@ const DKEY = "sme-geotech-draft-v1";
 /* ---------------- state ---------------- */
 let P = null;          // project (one file per job)
 let bi = 0;            // active boring index
+let mod = "boring";    // active module: boring | ei | sieve | proctor | shear
+let ti = { sieve:0, proctor:0, shear:0 };  // active test index per lab module
 let fileHandle = null; // File System Access API handle
 let dirty = false;
 let draftTimer = null;
@@ -354,8 +384,19 @@ function blankProject() {
     app:"sme-geotech", version:1,
     client:"", projectNo:"", location:"",
     borings:[blankBoring()],
-    tests:{}   /* reserved for Expansion Index, Sieve, Proctor, Shear modules */
+    tests:{ ei:[], eiMeta:{date:"",by:"",remarks:""}, sieve:[], proctor:[], shear:[] }
   };
+}
+
+function normalizeTests(){
+  const base = blankProject().tests;
+  P.tests = Object.assign(base, P.tests || {});
+  if (!Array.isArray(P.tests.ei)) P.tests.ei = [];
+  if (!P.tests.eiMeta) P.tests.eiMeta = {date:"",by:"",remarks:""};
+  ["sieve","proctor","shear"].forEach(k => {
+    if (!Array.isArray(P.tests[k])) P.tests[k] = [];
+    ti[k] = Math.min(ti[k] || 0, Math.max(0, P.tests[k].length - 1));
+  });
 }
 
 function exampleProject() {
@@ -401,6 +442,42 @@ function exampleProject() {
   p.projectNo = "GS 1531";
   p.location = "2277 Harbor Blvd, Costa Mesa";
   p.borings = [b];
+  p.tests = {
+    ei: [
+      { sampleId:"EI-1", boring:"B-4", depth:"2", desc:"Brown sandy clay (CL)",
+        moldMoist:"11.2", dryDens:"106.4", finalMoist:"18.7", h0:"1.000", dial0:"0.0000", dial1:"0.0480" },
+      { sampleId:"EI-2", boring:"B-4", depth:"5", desc:"Clayey sand (SC)",
+        moldMoist:"9.8", dryDens:"110.1", finalMoist:"14.2", h0:"1.000", dial0:"0.0000", dial1:"0.0210" }
+    ],
+    eiMeta: { date:"4/6/2015", by:"TGH", remarks:"Specimens remolded and tested per ASTM D4829 at ~50% saturation." },
+    sieve: [
+      { sampleId:"S-1", boring:"B-4", depth:"6.5", desc:"Silty fine-medium sand (SM)", date:"4/6/2015", by:"TGH",
+        totalWt:"500.0",
+        sieves:[
+          {name:'3"',mm:75,wt:""},{name:'2"',mm:50,wt:""},{name:'1½"',mm:37.5,wt:""},
+          {name:'1"',mm:25,wt:""},{name:'¾"',mm:19,wt:""},{name:'½"',mm:12.5,wt:""},
+          {name:'⅜"',mm:9.5,wt:"0.0"},{name:"#4",mm:4.75,wt:"10.0"},{name:"#8",mm:2.36,wt:"25.0"},
+          {name:"#16",mm:1.18,wt:"40.0"},{name:"#30",mm:0.6,wt:"60.0"},{name:"#50",mm:0.3,wt:"90.0"},
+          {name:"#100",mm:0.15,wt:"120.0"},{name:"#200",mm:0.075,wt:"80.0"}
+        ] }
+    ],
+    proctor: [
+      { sampleId:"P-1", boring:"B-4", depth:"0-5", desc:"Brown sandy clay (CL)", date:"4/7/2015", by:"TGH",
+        method:"ASTM D1557", prep:"Method A", moldWt:"4.25", moldVol:"0.03333", Gs:"2.70",
+        points:[
+          {gross:"8.50", wet:"", dry:"", tare:"", wdir:"8.0"},
+          {gross:"8.80", wet:"", dry:"", tare:"", wdir:"10.0"},
+          {gross:"8.99", wet:"", dry:"", tare:"", wdir:"12.0"},
+          {gross:"8.96", wet:"", dry:"", tare:"", wdir:"14.0"}
+        ] }
+    ],
+    shear: [
+      { sampleId:"DS-1", boring:"B-4", depth:"6.5", desc:"Silty fine-medium sand (SM)", date:"4/8/2015", by:"TGH",
+        dia:"2.416", condition:"Consolidated Drained — saturated", rate:"0.005 in/min",
+        moist:"8.4", dens:"98.8", inputMode:"stress",
+        rows:[ {a:"1000", b:"620"}, {a:"2000", b:"1150"}, {a:"4000", b:"2210"} ] }
+    ]
+  };
   return p;
 }
 
@@ -661,7 +738,8 @@ function renderSheets(b) {
 }
 
 function renderPreview() {
-  document.getElementById("preview").innerHTML = renderSheets(B());
+  const pv = document.getElementById("preview");
+  pv.innerHTML = (mod === "boring") ? renderSheets(B()) : labModuleSheets(mod, false);
   fixOverlaps();
 }
 
@@ -679,8 +757,11 @@ function fixOverlaps() {
   });
 }
 
-function printAllBorings(){
-  document.getElementById("preview").innerHTML = P.borings.map(b => renderSheets(b)).join("");
+function printAllCurrent(){
+  const pv = document.getElementById("preview");
+  pv.innerHTML = (mod === "boring")
+    ? P.borings.map(b => renderSheets(b)).join("")
+    : labModuleSheets(mod, true);
   fixOverlaps();
   const restore = () => { renderPreview(); window.removeEventListener("afterprint", restore); };
   window.addEventListener("afterprint", restore);
@@ -688,7 +769,13 @@ function printAllBorings(){
 }
 
 /* ---------------- actions ---------------- */
-function renderAll(){ renderForm(); renderPreview(); setStatus(); }
+function renderAll(){
+  updateModUI();
+  renderForm();
+  if (mod !== "boring") renderLabPanel();
+  renderPreview();
+  setStatus();
+}
 function loadExample(){
   if (!confirm("Replace the current project with the example project?")) return;
   P = exampleProject(); bi = 0; fileHandle = null; dirty = false; clearDraft(); renderAll();
@@ -719,7 +806,7 @@ function loadData(text){
   } else {
     throw new Error("Not a recognized SME project file");
   }
-  if (!P.tests) P.tests = {};
+  normalizeTests();
   bi = 0;
   renderAll();
 }
@@ -787,6 +874,515 @@ document.addEventListener("keydown", e => {
   else if (e.key === "o") { e.preventDefault(); openProject(); }
 });
 
+/* ================= LAB TEST MODULES ================= */
+const MODNAMES = { boring:"Boring Logs", ei:"Expansion Index", sieve:"Sieve Analysis",
+                   proctor:"Proctor Compaction", shear:"Direct Shear" };
+const fnum = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(d);
+function CT(){ return P.tests[mod][ti[mod]]; }
+
+function setMod(m){ mod = m; renderAll(); }
+
+function updateModUI(){
+  document.querySelectorAll("#modChips .mod").forEach(el => el.classList.toggle("on", el.dataset.mod === mod));
+  document.getElementById("boringPanel").style.display = (mod === "boring") ? "" : "none";
+  document.getElementById("labPanel").style.display    = (mod === "boring") ? "none" : "";
+  const b1 = document.getElementById("btnPrint1"), b2 = document.getElementById("btnPrint2");
+  b1.textContent = (mod === "boring") ? "🖨 Print Boring" : "🖨 Print Sheet";
+  b2.style.display = (mod === "ei") ? "none" : "";
+  b2.textContent = (mod === "boring") ? "🖨 Print All Borings" : "🖨 Print All " + MODNAMES[mod] + " Sheets";
+}
+
+/* ---------- blank test factories ---------- */
+const STD_SIEVES = [
+  {name:'3"',mm:75},{name:'2"',mm:50},{name:'1½"',mm:37.5},{name:'1"',mm:25},
+  {name:'¾"',mm:19},{name:'½"',mm:12.5},{name:'⅜"',mm:9.5},{name:"#4",mm:4.75},
+  {name:"#8",mm:2.36},{name:"#16",mm:1.18},{name:"#30",mm:0.6},{name:"#50",mm:0.3},
+  {name:"#100",mm:0.15},{name:"#200",mm:0.075}
+];
+function blankEIRow(){ return {sampleId:"",boring:"",depth:"",desc:"",moldMoist:"",dryDens:"",finalMoist:"",h0:"1.000",dial0:"0.0000",dial1:""}; }
+function blankSieveTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",totalWt:"",
+  sieves:STD_SIEVES.map(s=>({name:s.name,mm:s.mm,wt:""}))}; }
+function blankProctorTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",method:"ASTM D1557",prep:"Method A",
+  moldWt:"",moldVol:"0.03333",Gs:"2.70",points:[0,1,2,3].map(()=>({gross:"",wet:"",dry:"",tare:"",wdir:""}))}; }
+function blankShearTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",dia:"2.416",
+  condition:"Consolidated Drained — saturated",rate:"",moist:"",dens:"",inputMode:"stress",
+  rows:[{a:"",b:""},{a:"",b:""},{a:"",b:""}]}; }
+const BLANKS = { sieve:blankSieveTest, proctor:blankProctorTest, shear:blankShearTest };
+
+function addTest(){ P.tests[mod].push(BLANKS[mod]()); ti[mod]=P.tests[mod].length-1; touch(); renderAll(); }
+function dupTest(){ const c=JSON.parse(JSON.stringify(CT())); c.sampleId=(c.sampleId||"Test")+" copy";
+  P.tests[mod].splice(ti[mod]+1,0,c); ti[mod]++; touch(); renderAll(); }
+function delTest(){ if(!P.tests[mod].length) return;
+  if(!confirm("Delete this test?")) return;
+  P.tests[mod].splice(ti[mod],1); ti[mod]=Math.max(0,ti[mod]-1); touch(); renderAll(); }
+
+/* ---------- calculations ---------- */
+function eiCalc(r){
+  const d0=num(r.dial0), d1=num(r.dial1), h=num(r.h0);
+  if(d0===null||d1===null||!h) return {ei:null, pot:"—"};
+  const ei=Math.round((d1-d0)/h*1000);
+  return {ei, pot: ei<=20?"Very Low":ei<=50?"Low":ei<=90?"Medium":ei<=130?"High":"Very High"};
+}
+
+function sieveCalc(t){
+  const used = t.sieves.filter(s=>s.wt!=="" && num(s.wt)!==null);
+  const sumRet = used.reduce((a,s)=>a+num(s.wt),0);
+  const tot = num(t.totalWt);
+  const total = (tot && tot>0) ? tot : (sumRet>0 ? sumRet : null);
+  if(!total) return {rows:[], pan:null, total:null, d60:null,d30:null,d10:null,cu:null,cc:null,gravel:null,sand:null,fines:null};
+  const rows=[]; let cum=0;
+  t.sieves.forEach(s=>{
+    if(s.wt==="" || num(s.wt)===null) return;
+    cum += num(s.wt);
+    rows.push({name:s.name, mm:s.mm, wt:num(s.wt), cum, pass: Math.max(0, 100 - cum/total*100)});
+  });
+  const D = X => {
+    for(let i=0;i<rows.length-1;i++){
+      const a=rows[i], b=rows[i+1];
+      if(a.pass>=X && b.pass<=X){
+        if(a.pass===b.pass) return b.mm;
+        const f=(X-b.pass)/(a.pass-b.pass);
+        return Math.pow(10, Math.log10(b.mm)+f*(Math.log10(a.mm)-Math.log10(b.mm)));
+      }
+    }
+    return null;
+  };
+  const d60=D(60), d30=D(30), d10=D(10);
+  const passAt = mm => { const r=rows.find(x=>Math.abs(x.mm-mm)<1e-9); return r?r.pass:null; };
+  const p4=passAt(4.75), p200=passAt(0.075);
+  return { rows, pan: total-cum, total, d60, d30, d10,
+    cu: (d60&&d10)?d60/d10:null,
+    cc: (d60&&d30&&d10)?d30*d30/(d10*d60):null,
+    gravel: p4===null?null:100-p4,
+    sand: (p4!==null&&p200!==null)?p4-p200:null,
+    fines: p200 };
+}
+
+function solve3(A,b){
+  const M=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<3;c++){
+    let piv=c;
+    for(let r2=c+1;r2<3;r2++) if(Math.abs(M[r2][c])>Math.abs(M[piv][c])) piv=r2;
+    if(Math.abs(M[piv][c])<1e-12) return null;
+    [M[c],M[piv]]=[M[piv],M[c]];
+    for(let r2=0;r2<3;r2++){
+      if(r2===c) continue;
+      const f=M[r2][c]/M[c][c];
+      for(let k=c;k<4;k++) M[r2][k]-=f*M[c][k];
+    }
+  }
+  return [M[0][3]/M[0][0], M[1][3]/M[1][1], M[2][3]/M[2][2]];
+}
+
+function proctorCalc(t){
+  const mv=num(t.moldVol), mw=num(t.moldWt), gs=num(t.Gs)||2.70;
+  const pts=[];
+  t.points.forEach(p=>{
+    let w=num(p.wdir);
+    if(w===null){
+      const wet=num(p.wet), dry=num(p.dry), tare=num(p.tare);
+      if(wet!==null&&dry!==null&&tare!==null&&(dry-tare)>0) w=(wet-dry)/(dry-tare)*100;
+    }
+    const gross=num(p.gross);
+    if(w===null||gross===null||!mv||mv<=0||mw===null) return;
+    const net=gross-mw; if(net<=0) return;
+    const gwet=net/mv, gd=gwet/(1+w/100);
+    pts.push({w, gwet, gd});
+  });
+  let fit=null, mdd=null, omc=null;
+  if(pts.length>=3){
+    let Sx=0,Sx2=0,Sx3=0,Sx4=0,Sy=0,Sxy=0,Sx2y=0;
+    pts.forEach(p=>{const X=p.w,Y=p.gd;Sx+=X;Sx2+=X*X;Sx3+=X**3;Sx4+=X**4;Sy+=Y;Sxy+=X*Y;Sx2y+=X*X*Y;});
+    const sol=solve3([[Sx4,Sx3,Sx2],[Sx3,Sx2,Sx],[Sx2,Sx,pts.length]],[Sx2y,Sxy,Sy]);
+    if(sol && sol[0]<0){
+      const [a,b2,c2]=sol;
+      const w0=-b2/(2*a);
+      const ws=pts.map(p=>p.w);
+      if(w0>=Math.min(...ws)-2 && w0<=Math.max(...ws)+2){
+        omc=w0; mdd=a*w0*w0+b2*w0+c2; fit={a,b:b2,c:c2};
+      }
+    }
+  }
+  if(mdd===null && pts.length){
+    const best=pts.reduce((m,p)=>p.gd>m.gd?p:m,pts[0]);
+    mdd=best.gd; omc=best.w;
+  }
+  return {pts, fit, mdd, omc, gs};
+}
+
+function shearCalc(t){
+  const dia=num(t.dia);
+  const area = dia ? Math.PI/4*dia*dia : null;   // in²
+  const pts=[];
+  t.rows.forEach(r=>{
+    const a=num(r.a), b=num(r.b);
+    if(a===null||b===null) return;
+    if(t.inputMode==="load"){ if(!area) return; pts.push({n:a/area*144, s:b/area*144}); }
+    else pts.push({n:a, s:b});
+  });
+  let c=null, phi=null, slope=null;
+  if(pts.length>=2){
+    const n=pts.length;
+    let Sx=0,Sy=0,Sxy=0,Sx2=0;
+    pts.forEach(p=>{Sx+=p.n;Sy+=p.s;Sxy+=p.n*p.s;Sx2+=p.n*p.n;});
+    const den=n*Sx2-Sx*Sx;
+    if(Math.abs(den)>1e-9){ slope=(n*Sxy-Sx*Sy)/den; c=(Sy-slope*Sx)/n; phi=Math.atan(slope)*180/Math.PI; }
+  }
+  return {pts, c, phi, slope, area};
+}
+
+/* ---------- panel forms ---------- */
+function tf(label, key){
+  return `<div class="field"><label>${label}</label><input value="${esc(CT()[key]??"")}" oninput="CT().${key}=this.value;renderPreview()"></div>`;
+}
+function sampleInfoBlock(){
+  const t=CT();
+  return `<details open><summary>Sample Information</summary><div class="sect"><div class="grid2">
+    ${tf("Sample ID","sampleId")}${tf("Boring","boring")}${tf("Depth (ft)","depth")}${tf("Date","date")}${tf("Tested By","by")}
+  </div><div class="field" style="margin-top:6px"><label>Soil Description</label>
+    <input value="${esc(t.desc)}" oninput="CT().desc=this.value;renderPreview()"></div></div></details>`;
+}
+function labTabsHTML(){
+  return `<div class="tabs">` + P.tests[mod].map((t,i)=>
+    `<button class="tab ${i===ti[mod]?"on":""}" onclick="ti.${mod}=${i};renderAll()">${esc(t.sampleId||("Test "+(i+1)))}</button>`).join("") +
+    `<button class="tab add" onclick="addTest()">+ Add Test</button></div>` +
+    (P.tests[mod].length?`<div class="btnrow" style="margin-bottom:0">
+      <button class="sec" onclick="dupTest()">Duplicate Test</button>
+      <button class="danger" onclick="delTest()">Delete Test</button></div>`:"");
+}
+
+function renderLabPanel(){
+  const lp=document.getElementById("labPanel");
+  if(mod==="ei"){ lp.innerHTML=eiPanel(); return; }
+  let body="";
+  if(P.tests[mod].length)
+    body = mod==="sieve"?sievePanel():mod==="proctor"?proctorPanel():shearPanel();
+  lp.innerHTML = `<details open><summary>${MODNAMES[mod]} Tests in this Project</summary>
+    <div class="sect">${labTabsHTML()}</div></details>` + body;
+}
+
+function eiPanel(){
+  const m=P.tests.eiMeta;
+  return `<details open><summary>Sheet Info</summary><div class="sect"><div class="grid2">
+    <div class="field"><label>Date</label><input value="${esc(m.date)}" oninput="P.tests.eiMeta.date=this.value;renderPreview()"></div>
+    <div class="field"><label>Tested By</label><input value="${esc(m.by)}" oninput="P.tests.eiMeta.by=this.value;renderPreview()"></div>
+    </div><div class="field" style="margin-top:6px"><label>Remarks</label>
+    <textarea rows="2" oninput="P.tests.eiMeta.remarks=this.value;renderPreview()">${esc(m.remarks)}</textarea></div></div></details>
+  <details open><summary>Expansion Index Samples (all print on one sheet)</summary><div class="sect">` +
+  P.tests.ei.map((r,i)=>`<div class="card"><button class="del" onclick="P.tests.ei.splice(${i},1);touch();renderAll()">✕</button>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="field"><label>Sample ID</label><input value="${esc(r.sampleId)}" oninput="P.tests.ei[${i}].sampleId=this.value;renderPreview()"></div>
+      <div class="field"><label>Boring</label><input value="${esc(r.boring)}" oninput="P.tests.ei[${i}].boring=this.value;renderPreview()"></div>
+      <div class="field"><label>Depth (ft)</label><input value="${esc(r.depth)}" oninput="P.tests.ei[${i}].depth=this.value;renderPreview()"></div>
+    </div>
+    <div class="field"><label>Soil Description</label><input value="${esc(r.desc)}" oninput="P.tests.ei[${i}].desc=this.value;renderPreview()"></div>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr 1fr;margin-top:6px;">
+      <div class="field"><label>Molded Moist. %</label><input value="${esc(r.moldMoist)}" oninput="P.tests.ei[${i}].moldMoist=this.value;renderPreview()"></div>
+      <div class="field"><label>Dry Density (pcf)</label><input value="${esc(r.dryDens)}" oninput="P.tests.ei[${i}].dryDens=this.value;renderPreview()"></div>
+      <div class="field"><label>Final Moist. %</label><input value="${esc(r.finalMoist)}" oninput="P.tests.ei[${i}].finalMoist=this.value;renderPreview()"></div>
+    </div>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="field"><label>Init. Height (in)</label><input value="${esc(r.h0)}" oninput="P.tests.ei[${i}].h0=this.value;renderPreview()"></div>
+      <div class="field"><label>Initial Dial (in)</label><input value="${esc(r.dial0)}" oninput="P.tests.ei[${i}].dial0=this.value;renderPreview()"></div>
+      <div class="field"><label>Final Dial (in)</label><input value="${esc(r.dial1)}" oninput="P.tests.ei[${i}].dial1=this.value;renderPreview()"></div>
+    </div></div>`).join("") +
+  `<button class="addbtn" onclick="P.tests.ei.push(blankEIRow());touch();renderAll()">+ Add Sample</button>
+   <p class="hint">EI = (final − initial dial) ÷ initial height × 1000, classified per ASTM D4829. Computed live on the sheet.</p></div></details>`;
+}
+
+function sievePanel(){
+  const t=CT();
+  return sampleInfoBlock() +
+  `<details open><summary>Weights</summary><div class="sect grid2">
+    ${tf("Total Dry Sample Wt (g)","totalWt")}
+  </div></details>
+  <details open><summary>Weight Retained on Each Sieve (g) — blank = sieve not used</summary><div class="sect"><div class="grid3">` +
+  t.sieves.map((s,j)=>`
+    <div class="field"><label>${esc(s.name)} · ${s.mm} mm</label>
+      <input value="${esc(s.wt)}" oninput="CT().sieves[${j}].wt=this.value;renderPreview()"></div>`).join("") +
+  `</div><p class="hint">Enter 0 for a sieve in the stack with nothing retained. Percent passing, gradation curve, gravel/sand/fines split, D₆₀/D₃₀/D₁₀, Cu and Cc are computed automatically.</p></div></details>`;
+}
+
+function proctorPanel(){
+  const t=CT();
+  return sampleInfoBlock() +
+  `<details open><summary>Test Setup</summary><div class="sect"><div class="grid3">
+    <div class="field"><label>Method</label><select onchange="CT().method=this.value;renderPreview()">
+      <option ${t.method==="ASTM D1557"?"selected":""}>ASTM D1557</option>
+      <option ${t.method==="ASTM D698"?"selected":""}>ASTM D698</option></select></div>
+    <div class="field"><label>Procedure</label><select onchange="CT().prep=this.value;renderPreview()">
+      <option ${t.prep==="Method A"?"selected":""}>Method A</option>
+      <option ${t.prep==="Method B"?"selected":""}>Method B</option>
+      <option ${t.prep==="Method C"?"selected":""}>Method C</option></select></div>
+    ${tf("Sp. Gravity Gs","Gs")}
+  </div><div class="grid2" style="margin-top:6px">
+    ${tf("Mold Weight (lb)","moldWt")}${tf("Mold Volume (ft³)","moldVol")}
+  </div></div></details>
+  <details open><summary>Compaction Points</summary><div class="sect">` +
+  t.points.map((p,j)=>`<div class="card"><button class="del" onclick="CT().points.splice(${j},1);touch();renderAll()">✕</button>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Mold + Soil Wt (lb)</label><input value="${esc(p.gross)}" oninput="CT().points[${j}].gross=this.value;renderPreview()"></div>
+      <div class="field"><label>Moisture % (direct)</label><input value="${esc(p.wdir)}" oninput="CT().points[${j}].wdir=this.value;renderPreview()"></div>
+    </div>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="field"><label>Wet + Tare (g)</label><input value="${esc(p.wet)}" oninput="CT().points[${j}].wet=this.value;renderPreview()"></div>
+      <div class="field"><label>Dry + Tare (g)</label><input value="${esc(p.dry)}" oninput="CT().points[${j}].dry=this.value;renderPreview()"></div>
+      <div class="field"><label>Tare (g)</label><input value="${esc(p.tare)}" oninput="CT().points[${j}].tare=this.value;renderPreview()"></div>
+    </div></div>`).join("") +
+  `<button class="addbtn" onclick="CT().points.push({gross:'',wet:'',dry:'',tare:'',wdir:''});touch();renderAll()">+ Add Point</button>
+   <p class="hint">Moisture per point: enter oven weights (wet/dry/tare), or type the moisture % directly — direct entry wins. Wet/dry density, compaction curve, zero-air-voids line, MDD and OMC are computed automatically.</p></div></details>`;
+}
+
+function shearPanel(){
+  const t=CT();
+  return sampleInfoBlock() +
+  `<details open><summary>Test Setup</summary><div class="sect"><div class="grid3">
+    <div class="field"><label>Input Mode</label><select onchange="CT().inputMode=this.value;renderAll()">
+      <option value="stress" ${t.inputMode==="stress"?"selected":""}>Stresses (psf)</option>
+      <option value="load" ${t.inputMode==="load"?"selected":""}>Loads (lb)</option></select></div>
+    ${tf("Specimen Dia (in)","dia")}${tf("Strain Rate","rate")}${tf("Moisture %","moist")}${tf("Dry Density (pcf)","dens")}
+  </div><div class="field" style="margin-top:6px"><label>Test Condition</label>
+    <input value="${esc(t.condition)}" oninput="CT().condition=this.value;renderPreview()"></div></div></details>
+  <details open><summary>Test Points (typically 3 normal stresses)</summary><div class="sect">` +
+  t.rows.map((r,j)=>{
+    const l1 = t.inputMode==="load" ? "Normal Load (lb)" : "Normal Stress (psf)";
+    const l2 = t.inputMode==="load" ? "Peak Shear Load (lb)" : "Peak Shear Stress (psf)";
+    return `<div class="card"><button class="del" onclick="CT().rows.splice(${j},1);touch();renderAll()">✕</button>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>${l1}</label><input value="${esc(r.a)}" oninput="CT().rows[${j}].a=this.value;renderPreview()"></div>
+      <div class="field"><label>${l2}</label><input value="${esc(r.b)}" oninput="CT().rows[${j}].b=this.value;renderPreview()"></div>
+    </div></div>`;}).join("") +
+  `<button class="addbtn" onclick="CT().rows.push({a:'',b:''});touch();renderAll()">+ Add Point</button>
+   <p class="hint">Friction angle φ and cohesion c come from a least-squares best fit through the points, drawn on the sheet.</p></div></details>`;
+}
+
+/* ---------- sheets ---------- */
+function labLetterhead(){
+  return `<div class="lh"><img src="${LOGO}" alt="SM Engineering"><div class="co">
+    <div class="nm">San Mina Engineering, Inc.</div>
+    <div class="ad">7231 Boulder Ave #195, Highland, CA 92346<br>
+      Phone (949) 536-9645 | (949) 446-1417<br>
+      info@sanminaeng.com | www.sanminaeng.com</div>
+  </div></div><div class="lh-rule"></div>`;
+}
+function labInfoCell(k,v,wide){ return `<div class="cell${wide?" wide":""}"><div class="k">${k}</div><div class="v">${esc(v??"")}</div></div>`; }
+function labSheetWrap(title, std, cells, content){
+  return `<div class="sheet">${labLetterhead()}
+    <div class="labttl"><div class="t1">${title}</div><div class="t2">${std}</div></div>
+    <div class="labinfo">${cells}</div>
+    ${content}
+    <div class="labfoot"><div class="ftr"><span>San Mina Engineering, Inc.</span><span>Project No. ${esc(P.projectNo)}</span></div></div>
+  </div>`;
+}
+
+function labModuleSheets(m, all){
+  if(m==="ei") return eiSheet();
+  const list=P.tests[m];
+  if(!list.length) return `<div class="sheet"><div style="padding:80px 40px;text-align:center;font-size:14px;">
+    No ${MODNAMES[m]} tests yet.<br><br>Click “+ Add Test” in the left panel to start one.</div></div>`;
+  if(all) return list.map((t,i)=>labSheetFor(m,i)).join("");
+  return labSheetFor(m, ti[m]);
+}
+function labSheetFor(m,i){
+  return m==="sieve" ? sieveSheet(P.tests.sieve[i])
+       : m==="proctor" ? proctorSheet(P.tests.proctor[i])
+       : shearSheet(P.tests.shear[i]);
+}
+
+function eiSheet(){
+  const m=P.tests.eiMeta, rows=P.tests.ei;
+  const cells = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Date:",m.date)
+    +labInfoCell("Tested By:",m.by)+labInfoCell("No. of Samples:",String(rows.length));
+  const tbl = `<table class="labtbl"><tr><th>Boring</th><th>Sample</th><th>Depth<br>(ft)</th><th class="l">Soil Description</th>
+    <th>Molded<br>Moist. (%)</th><th>Dry Density<br>(pcf)</th><th>Final<br>Moist. (%)</th><th>Expansion<br>Index</th><th>Expansion<br>Potential</th></tr>` +
+    (rows.length ? rows.map(r=>{const c=eiCalc(r);
+      return `<tr><td>${esc(r.boring)}</td><td>${esc(r.sampleId)}</td><td>${esc(r.depth)}</td><td class="l">${esc(r.desc)}</td>
+        <td>${esc(r.moldMoist)}</td><td>${esc(r.dryDens)}</td><td>${esc(r.finalMoist)}</td>
+        <td><b>${c.ei===null?"—":c.ei}</b></td><td>${c.pot}</td></tr>`;}).join("")
+    : `<tr><td colspan="9">No samples entered yet — add samples in the left panel.</td></tr>`) + `</table>`;
+  const ref = `<p class="labrem"><b>Classification of Expansive Soil (ASTM D4829):</b></p>
+    <table class="labtbl" style="width:55%"><tr><th>Expansion Index</th><th>Expansion Potential</th></tr>
+    <tr><td>0 – 20</td><td>Very Low</td></tr><tr><td>21 – 50</td><td>Low</td></tr>
+    <tr><td>51 – 90</td><td>Medium</td></tr><tr><td>91 – 130</td><td>High</td></tr>
+    <tr><td>&gt; 130</td><td>Very High</td></tr></table>` +
+    (m.remarks?`<p class="labrem"><b>Remarks:</b> ${md(m.remarks)}</p>`:"");
+  return labSheetWrap("EXPANSION INDEX TEST RESULTS","ASTM D4829", cells, tbl+ref);
+}
+
+function sieveSheet(t){
+  const c=sieveCalc(t);
+  const cells = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Date:",t.date)
+    +labInfoCell("Boring / Sample:",(t.boring||"—")+" / "+(t.sampleId||"—"))+labInfoCell("Depth (ft):",t.depth)
+    +labInfoCell("Tested By:",t.by)+labInfoCell("Total Dry Wt (g):",t.totalWt)
+    +labInfoCell("Soil Description:",t.desc,true);
+  const plot = `<div class="plotwrap">${sieveSVG(c.rows)}</div>`;
+  const res = `<div class="resbox">Gravel: <b>${fnum(c.gravel,1)}%</b> &nbsp; Sand: <b>${fnum(c.sand,1)}%</b> &nbsp; Fines (−#200): <b>${fnum(c.fines,1)}%</b>
+    &nbsp;|&nbsp; D<sub>60</sub>=${fnum(c.d60,3)} &nbsp; D<sub>30</sub>=${fnum(c.d30,3)} &nbsp; D<sub>10</sub>=${fnum(c.d10,3)} mm
+    &nbsp;|&nbsp; C<sub>u</sub>=${fnum(c.cu,2)} &nbsp; C<sub>c</sub>=${fnum(c.cc,2)}</div>`;
+  const tbl = `<table class="labtbl"><tr><th>Sieve</th><th>Opening (mm)</th><th>Wt Retained (g)</th><th>Cum. Retained (g)</th><th>Percent Passing (%)</th></tr>` +
+    (c.rows.length ? c.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.mm}</td><td>${fnum(r.wt,1)}</td><td>${fnum(r.cum,1)}</td><td><b>${fnum(r.pass,1)}</b></td></tr>`).join("")
+      + (c.pan!==null?`<tr><td>Pan</td><td>—</td><td>${fnum(c.pan,1)}</td><td>${fnum(c.total,1)}</td><td>—</td></tr>`:"")
+    : `<tr><td colspan="5">Enter sieve weights in the left panel.</td></tr>`) + `</table>`;
+  return labSheetWrap("PARTICLE SIZE DISTRIBUTION","ASTM D6913 / ASTM C136", cells, plot+res+tbl);
+}
+
+function sieveSVG(rows){
+  const W=720,H=330,L=44,R=14,T=26,Bm=40;
+  const lx=Math.log10(100), ln=Math.log10(0.01);
+  const x=d=>L+(lx-Math.log10(d))/(lx-ln)*(W-L-R);
+  const y=p=>T+(100-p)/100*(H-T-Bm);
+  let g="";
+  for(let dec=2;dec>=-2;dec--){
+    const base=Math.pow(10,dec);
+    for(let m2=1;m2<10;m2++){
+      const d=base*m2; if(d>100.001||d<0.00999) continue;
+      const maj=(m2===1);
+      g+=`<line x1="${x(d).toFixed(1)}" y1="${T}" x2="${x(d).toFixed(1)}" y2="${H-Bm}" stroke="${maj?"#888":"#e2e2e2"}" stroke-width="${maj?1:0.5}"/>`;
+      if(maj) g+=`<text x="${x(d).toFixed(1)}" y="${H-Bm+13}" font-size="9" text-anchor="middle" fill="#000">${d}</text>`;
+    }
+  }
+  for(let p=0;p<=100;p+=10){
+    g+=`<line x1="${L}" y1="${y(p).toFixed(1)}" x2="${W-R}" y2="${y(p).toFixed(1)}" stroke="${p%20===0?"#888":"#e2e2e2"}" stroke-width="${p%20===0?1:0.5}"/>
+        <text x="${L-5}" y="${(y(p)+3).toFixed(1)}" font-size="9" text-anchor="end" fill="#000">${p}</text>`;
+  }
+  [4.75,0.075].forEach(d=>{ g+=`<line x1="${x(d).toFixed(1)}" y1="${T}" x2="${x(d).toFixed(1)}" y2="${H-Bm}" stroke="#000" stroke-width="1.2" stroke-dasharray="5 3"/>`; });
+  const zx=(a,b)=>((x(a)+x(b))/2).toFixed(1);
+  g+=`<text x="${zx(100,4.75)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">GRAVEL</text>
+      <text x="${zx(4.75,0.075)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">SAND</text>
+      <text x="${zx(0.075,0.01)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">SILT / CLAY</text>`;
+  if(rows.length){
+    const path = rows.map((r,i)=>`${i?"L":"M"}${x(r.mm).toFixed(1)},${y(r.pass).toFixed(1)}`).join(" ");
+    g+=`<path d="${path}" fill="none" stroke="#000" stroke-width="2"/>`;
+    rows.forEach(r=>{ g+=`<circle cx="${x(r.mm).toFixed(1)}" cy="${y(r.pass).toFixed(1)}" r="3.5" fill="#fff" stroke="#000" stroke-width="1.5"/>`; });
+  }
+  g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000" stroke-width="1.5"/>
+      <text x="${(L+(W-R))/2}" y="${H-6}" font-size="10" text-anchor="middle" fill="#000">Grain Size (mm)</text>
+      <text transform="rotate(-90 11 ${(T+H-Bm)/2})" x="11" y="${(T+H-Bm)/2}" font-size="10" text-anchor="middle" fill="#000">Percent Passing (%)</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
+function proctorSheet(t){
+  const c=proctorCalc(t);
+  const cells = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Date:",t.date)
+    +labInfoCell("Boring / Sample:",(t.boring||"—")+" / "+(t.sampleId||"—"))+labInfoCell("Depth (ft):",t.depth)
+    +labInfoCell("Method:",t.method+" — "+t.prep)+labInfoCell("Tested By:",t.by)
+    +labInfoCell("Soil Description:",t.desc,true);
+  const plot=`<div class="plotwrap">${proctorSVG(c)}</div>`;
+  const res=`<div class="resbox">Maximum Dry Density = <b>${fnum(c.mdd,1)} pcf</b> &nbsp;&nbsp;
+    Optimum Moisture Content = <b>${fnum(c.omc,1)} %</b></div>`;
+  const tbl=`<table class="labtbl"><tr><th>Point</th><th>Moisture Content (%)</th><th>Wet Density (pcf)</th><th>Dry Density (pcf)</th></tr>`+
+    (c.pts.length ? c.pts.map((p,i)=>`<tr><td>${i+1}</td><td>${fnum(p.w,1)}</td><td>${fnum(p.gwet,1)}</td><td><b>${fnum(p.gd,1)}</b></td></tr>`).join("")
+      : `<tr><td colspan="4">Enter compaction points in the left panel.</td></tr>`)+`</table>`;
+  return labSheetWrap("MOISTURE–DENSITY RELATIONSHIP", esc(t.method)+" ("+esc(t.prep)+")", cells, plot+res+tbl);
+}
+
+function proctorSVG(c){
+  const W=720,H=360,L=52,R=16,T=18,Bm=40;
+  if(!c.pts.length) return `<svg width="${W}" height="120" viewBox="0 0 ${W} 120"></svg>`;
+  const ws=c.pts.map(p=>p.w), gds=c.pts.map(p=>p.gd);
+  const x0=Math.floor(Math.min(...ws))-3, x1=Math.ceil(Math.max(...ws))+4;
+  const y0=Math.floor((Math.min(...gds)-4)/2)*2, y1=Math.ceil((Math.max(...gds,(c.mdd||0))+4)/2)*2;
+  const x=v=>L+(v-x0)/(x1-x0)*(W-L-R);
+  const y=v=>T+(y1-v)/(y1-y0)*(H-T-Bm);
+  let g="";
+  for(let v=x0;v<=x1;v++){
+    const maj=v%2===0;
+    g+=`<line x1="${x(v).toFixed(1)}" y1="${T}" x2="${x(v).toFixed(1)}" y2="${H-Bm}" stroke="${maj?"#bbb":"#e8e8e8"}" stroke-width="0.6"/>`;
+    if(maj) g+=`<text x="${x(v).toFixed(1)}" y="${H-Bm+13}" font-size="9" text-anchor="middle" fill="#000">${v}</text>`;
+  }
+  for(let v=y0;v<=y1;v+=2){
+    const maj=v%10===0;
+    g+=`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="${maj?"#bbb":"#e8e8e8"}" stroke-width="0.6"/>
+        <text x="${L-5}" y="${(y(v)+3).toFixed(1)}" font-size="9" text-anchor="end" fill="#000">${v}</text>`;
+  }
+  /* zero-air-voids curve */
+  let zav="";
+  for(let w=x0; w<=x1; w+=0.25){
+    const gz=c.gs*62.4/(1+w*c.gs/100);
+    if(gz>y1||gz<y0) continue;
+    zav+=`${zav?"L":"M"}${x(w).toFixed(1)},${y(gz).toFixed(1)} `;
+  }
+  if(zav) g+=`<path d="${zav}" fill="none" stroke="#555" stroke-width="1.4" stroke-dasharray="6 3"/>
+    <text x="${W-R-6}" y="${T+14}" font-size="9" text-anchor="end" fill="#333">Zero Air Voids (Gs=${c.gs})</text>`;
+  /* fitted curve or polyline */
+  if(c.fit){
+    let d="";
+    const wmin=Math.min(...ws)-1.5, wmax=Math.max(...ws)+1.5;
+    for(let w=wmin;w<=wmax;w+=0.1){
+      const gd=c.fit.a*w*w+c.fit.b*w+c.fit.c;
+      if(gd<y0||gd>y1) continue;
+      d+=`${d?"L":"M"}${x(w).toFixed(1)},${y(gd).toFixed(1)} `;
+    }
+    g+=`<path d="${d}" fill="none" stroke="#000" stroke-width="2"/>`;
+  } else {
+    const sorted=[...c.pts].sort((a,b)=>a.w-b.w);
+    g+=`<path d="${sorted.map((p,i)=>`${i?"L":"M"}${x(p.w).toFixed(1)},${y(p.gd).toFixed(1)}`).join(" ")}" fill="none" stroke="#000" stroke-width="2"/>`;
+  }
+  /* guides at OMC / MDD */
+  if(c.mdd!==null&&c.omc!==null){
+    g+=`<line x1="${x(c.omc).toFixed(1)}" y1="${y(c.mdd).toFixed(1)}" x2="${x(c.omc).toFixed(1)}" y2="${H-Bm}" stroke="#000" stroke-width="1" stroke-dasharray="3 3"/>
+        <line x1="${L}" y1="${y(c.mdd).toFixed(1)}" x2="${x(c.omc).toFixed(1)}" y2="${y(c.mdd).toFixed(1)}" stroke="#000" stroke-width="1" stroke-dasharray="3 3"/>`;
+  }
+  c.pts.forEach(p=>{ g+=`<circle cx="${x(p.w).toFixed(1)}" cy="${y(p.gd).toFixed(1)}" r="4" fill="#fff" stroke="#000" stroke-width="1.6"/>`; });
+  g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000" stroke-width="1.5"/>
+      <text x="${(L+(W-R))/2}" y="${H-6}" font-size="10" text-anchor="middle" fill="#000">Moisture Content (%)</text>
+      <text transform="rotate(-90 12 ${(T+H-Bm)/2})" x="12" y="${(T+H-Bm)/2}" font-size="10" text-anchor="middle" fill="#000">Dry Density (pcf)</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
+function shearSheet(t){
+  const c=shearCalc(t);
+  const cells = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Date:",t.date)
+    +labInfoCell("Boring / Sample:",(t.boring||"—")+" / "+(t.sampleId||"—"))+labInfoCell("Depth (ft):",t.depth)
+    +labInfoCell("Condition:",t.condition)+labInfoCell("Strain Rate:",t.rate)
+    +labInfoCell("Moisture / Dry Density:",(t.moist||"—")+" % / "+(t.dens||"—")+" pcf")+labInfoCell("Tested By:",t.by)
+    +labInfoCell("Soil Description:",t.desc,true);
+  const plot=`<div class="plotwrap">${shearSVG(c)}</div>`;
+  const res=`<div class="resbox">Friction Angle φ = <b>${fnum(c.phi,1)}°</b> &nbsp;&nbsp;
+    Cohesion c = <b>${c.c===null?"—":Math.round(c.c)+" psf"}</b></div>`;
+  const tbl=`<table class="labtbl"><tr><th>Point</th><th>Normal Stress (psf)</th><th>Peak Shear Stress (psf)</th></tr>`+
+    (c.pts.length ? c.pts.map((p,i)=>`<tr><td>${i+1}</td><td>${Math.round(p.n)}</td><td>${Math.round(p.s)}</td></tr>`).join("")
+      : `<tr><td colspan="3">Enter test points in the left panel.</td></tr>`)+`</table>`;
+  return labSheetWrap("DIRECT SHEAR TEST","ASTM D3080", cells, plot+res+tbl);
+}
+
+function shearSVG(c){
+  const W=720,H=360,L=56,R=16,T=18,Bm=40;
+  if(!c.pts.length) return `<svg width="${W}" height="120" viewBox="0 0 ${W} 120"></svg>`;
+  const maxN=Math.max(...c.pts.map(p=>p.n)), maxS=Math.max(...c.pts.map(p=>p.s));
+  const x1=Math.ceil(maxN*1.15/500)*500, y1=Math.ceil(Math.max(maxS*1.15,(c.c||0)+ (c.slope||0)*x1*0.4)/500)*500;
+  const x=v=>L+v/x1*(W-L-R);
+  const y=v=>T+(y1-v)/y1*(H-T-Bm);
+  let g="";
+  for(let v=0;v<=x1;v+=500){
+    const maj=v%1000===0;
+    g+=`<line x1="${x(v).toFixed(1)}" y1="${T}" x2="${x(v).toFixed(1)}" y2="${H-Bm}" stroke="${maj?"#bbb":"#e8e8e8"}" stroke-width="0.6"/>`;
+    if(maj) g+=`<text x="${x(v).toFixed(1)}" y="${H-Bm+13}" font-size="9" text-anchor="middle" fill="#000">${v/1000}</text>`;
+  }
+  for(let v=0;v<=y1;v+=500){
+    const maj=v%1000===0;
+    g+=`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="${maj?"#bbb":"#e8e8e8"}" stroke-width="0.6"/>`;
+    if(maj) g+=`<text x="${L-5}" y="${(y(v)+3).toFixed(1)}" font-size="9" text-anchor="end" fill="#000">${v/1000}</text>`;
+  }
+  if(c.slope!==null){
+    const yEnd=c.c+c.slope*x1;
+    const xe = yEnd>y1 ? (y1-c.c)/c.slope : x1;
+    const ye = c.c+c.slope*xe;
+    g+=`<line x1="${x(0).toFixed(1)}" y1="${y(Math.max(0,c.c)).toFixed(1)}" x2="${x(xe).toFixed(1)}" y2="${y(ye).toFixed(1)}" stroke="#000" stroke-width="2"/>`;
+    const mx=xe*0.55, my=c.c+c.slope*mx;
+    g+=`<text x="${x(mx).toFixed(1)}" y="${(y(my)-10).toFixed(1)}" font-size="10" fill="#000">φ = ${fnum(c.phi,1)}° , c = ${Math.round(c.c)} psf</text>`;
+  }
+  c.pts.forEach(p=>{ g+=`<circle cx="${x(p.n).toFixed(1)}" cy="${y(p.s).toFixed(1)}" r="4.5" fill="#fff" stroke="#000" stroke-width="1.8"/>`; });
+  g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000" stroke-width="1.5"/>
+      <text x="${(L+(W-R))/2}" y="${H-6}" font-size="10" text-anchor="middle" fill="#000">Normal Stress (ksf)</text>
+      <text transform="rotate(-90 13 ${(T+H-Bm)/2})" x="13" y="${(T+H-Bm)/2}" font-size="10" text-anchor="middle" fill="#000">Shear Stress (ksf)</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
 /* ---------------- init ---------------- */
 (function init(){
   let restored = false;
@@ -802,6 +1398,7 @@ document.addEventListener("keydown", e => {
     }
   } catch(e) {}
   if (!restored) P = exampleProject();
+  normalizeTests();
   renderAll();
   if (restored) {
     const el = document.getElementById("statusline");
