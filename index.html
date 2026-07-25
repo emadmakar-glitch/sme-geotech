@@ -251,6 +251,7 @@
       <span class="mod" data-mod="sieve" onclick="setMod('sieve')">Sieve Analysis</span>
       <span class="mod" data-mod="proctor" onclick="setMod('proctor')">Proctor</span>
       <span class="mod" data-mod="shear" onclick="setMod('shear')">Direct Shear</span>
+      <span class="mod" data-mod="consol" onclick="setMod('consol')">Consolidation</span>
     </div>
 
     <div class="btnrow">
@@ -367,7 +368,7 @@ const DKEY = "sme-geotech-draft-v1";
 let P = null;          // project (one file per job)
 let bi = 0;            // active boring index
 let mod = "boring";    // active module: boring | ei | sieve | proctor | shear
-let ti = { sieve:0, proctor:0, shear:0 };  // active test index per lab module
+let ti = { sieve:0, proctor:0, shear:0, consol:0 };  // active test index per lab module
 let fileHandle = null; // File System Access API handle
 let dirty = false;
 let draftTimer = null;
@@ -389,7 +390,7 @@ function blankProject() {
     app:"sme-geotech", version:1,
     client:"", projectNo:"", location:"",
     borings:[blankBoring()],
-    tests:{ ei:[], eiMeta:{date:"",by:"",remarks:""}, sieve:[], proctor:[], shear:[] }
+    tests:{ ei:[], eiMeta:{date:"",by:"",remarks:""}, sieve:[], proctor:[], shear:[], consol:[] }
   };
 }
 
@@ -398,7 +399,7 @@ function normalizeTests(){
   P.tests = Object.assign(base, P.tests || {});
   if (!Array.isArray(P.tests.ei)) P.tests.ei = [];
   if (!P.tests.eiMeta) P.tests.eiMeta = {date:"",by:"",remarks:""};
-  ["sieve","proctor","shear"].forEach(k => {
+  ["sieve","proctor","shear","consol"].forEach(k => {
     if (!Array.isArray(P.tests[k])) P.tests[k] = [];
     ti[k] = Math.min(ti[k] || 0, Math.max(0, P.tests[k].length - 1));
   });
@@ -505,6 +506,13 @@ function exampleProject() {
         dia:"2.416", condition:"Consolidated Drained — saturated", rate:"0.005 in/min",
         moist:"8.4", dens:"98.8", inputMode:"stress",
         rows:[ {a:"1000", b:"620"}, {a:"2000", b:"1150"}, {a:"4000", b:"2210"} ] }
+    ],
+    consol: [
+      { sampleId:"C-1", boring:"B-4", depth:"5", desc:"Light brown poorly graded sand (SP)", date:"4/9/2015", by:"TGH",
+        dryDens:"113.3", initMoist:"5.9", finalMoist:"12.6", waterAt:"2.0",
+        rows:[ {p:"0.1",pc:"0.05"}, {p:"0.5",pc:"0.3"}, {p:"1.0",pc:"0.6"}, {p:"2.0",pc:"1.0"},
+               {p:"2.0",pc:"1.5"}, {p:"4.0",pc:"2.1"}, {p:"8.0",pc:"2.7"},
+               {p:"4.0",pc:"2.6"}, {p:"2.0",pc:"2.5"}, {p:"1.0",pc:"2.35"}, {p:"0.5",pc:"2.2"} ] }
     ]
   };
   return p;
@@ -959,7 +967,7 @@ document.addEventListener("keydown", e => {
 
 /* ================= LAB TEST MODULES ================= */
 const MODNAMES = { boring:"Boring Logs", ei:"Expansion Index", sieve:"Sieve Analysis",
-                   proctor:"Proctor Compaction", shear:"Direct Shear" };
+                   proctor:"Proctor Compaction", shear:"Direct Shear", consol:"Consolidation" };
 const fnum = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(d);
 function CT(){ return P.tests[mod][ti[mod]]; }
 
@@ -997,7 +1005,10 @@ function blankProctorTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date
 function blankShearTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",dia:"2.416",
   condition:"Consolidated Drained — saturated",rate:"",moist:"",dens:"",inputMode:"stress",
   rows:[{a:"",b:""},{a:"",b:""},{a:"",b:""}]}; }
-const BLANKS = { sieve:blankSieveTest, proctor:blankProctorTest, shear:blankShearTest };
+function blankConsolTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",
+  dryDens:"", initMoist:"", finalMoist:"", waterAt:"2.0",
+  rows:[{p:"",pc:""},{p:"",pc:""},{p:"",pc:""},{p:"",pc:""}]}; }
+const BLANKS = { sieve:blankSieveTest, proctor:blankProctorTest, shear:blankShearTest, consol:blankConsolTest };
 
 function addTest(){ P.tests[mod].push(BLANKS[mod]()); ti[mod]=P.tests[mod].length-1; touch(); renderAll(); }
 function dupTest(){ const c=JSON.parse(JSON.stringify(CT())); c.sampleId=(c.sampleId||"Test")+" copy";
@@ -1222,7 +1233,7 @@ function renderLabPanel(){
   if(mod==="ei"){ lp.innerHTML=eiPanel(); return; }
   let body="";
   if(P.tests[mod].length)
-    body = mod==="sieve"?sievePanel():mod==="proctor"?proctorPanel():shearPanel();
+    body = mod==="sieve"?sievePanel():mod==="proctor"?proctorPanel():mod==="consol"?consolPanel():shearPanel();
   lp.innerHTML = `<details open><summary>${MODNAMES[mod]} Tests in this Project</summary>
     <div class="sect">${labTabsHTML()}</div></details>` + body;
 }
@@ -1341,6 +1352,24 @@ function shearPanel(){
    <p class="hint">Friction angle φ and cohesion c come from a least-squares best fit through the points, drawn on the sheet.</p></div></details>`;
 }
 
+function consolPanel(){
+  const t=CT();
+  return sampleInfoBlock() +
+  `<details open><summary>Specimen Data</summary><div class="sect"><div class="grid3">
+    ${tf("Dry Density (pcf)","dryDens")}${tf("Initial Moisture %","initMoist")}${tf("Final Moisture %","finalMoist")}
+  </div><div class="grid2" style="margin-top:6px">
+    ${tf("Water Added At (ksf)","waterAt")}
+  </div></div></details>
+  <details open><summary>Curve Points — pressure (ksf) vs % consolidation, in test order</summary><div class="sect">` +
+  t.rows.map((r,j)=>`<div class="card"><button class="del" onclick="CT().rows.splice(${j},1);touch();renderAll()">✕</button>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Pressure (ksf)</label><input value="${esc(r.p)}" oninput="CT().rows[${j}].p=this.value;renderPreview()"></div>
+      <div class="field"><label>% Consolidation</label><input value="${esc(r.pc)}" oninput="CT().rows[${j}].pc=this.value;renderPreview()"></div>
+    </div></div>`).join("") +
+  `<button class="addbtn" onclick="CT().rows.push({p:'',pc:''});touch();renderAll()">+ Add Point</button>
+   <p class="hint">Enter the readings in the order the test ran: loading points, the water-added collapse (repeat the same pressure with the larger % consolidation), further loading, then the rebound/unload points back down. The curve is drawn point-to-point in this order, so the loading branch and rebound branch come out exactly like the Excel/Geocon figure. The "Water Added At" pressure prints as the note above the chart.</p></div></details>`;
+}
+
 /* ---------- sheets ---------- */
 function labLetterhead(){
   return `<div class="lh"><img src="${LOGO}" alt="SM Engineering"><div class="co">
@@ -1371,6 +1400,7 @@ function labModuleSheets(m, all){
 function labSheetFor(m,i){
   return m==="sieve" ? sieveSheet(P.tests.sieve[i])
        : m==="proctor" ? proctorSheet(P.tests.proctor[i])
+       : m==="consol" ? consolSheet(P.tests.consol[i])
        : shearSheet(P.tests.shear[i]);
 }
 
@@ -1453,6 +1483,62 @@ function sieveSVG(rows){
   g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000" stroke-width="1.5"/>
       <text x="${(L+(W-R))/2}" y="${H-6}" font-size="10" text-anchor="middle" fill="#000">Grain Size (mm)</text>
       <text transform="rotate(-90 11 ${(T+H-Bm)/2})" x="11" y="${(T+H-Bm)/2}" font-size="10" text-anchor="middle" fill="#000">Percent Passing (%)</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
+function consolSheet(t){
+  const pts = t.rows.map(r=>({p:num(r.p), pc:num(r.pc)})).filter(r=>r.p!==null && r.p>0 && r.pc!==null);
+  const cells = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Date:",t.date)
+    +labInfoCell("Boring / Sample:",(t.boring||"—")+" / "+(t.sampleId||"—"))+labInfoCell("Depth (ft):",t.depth)
+    +labInfoCell("Tested By:",t.by)+labInfoCell("Water Added At:",t.waterAt?t.waterAt+" ksf":"—")
+    +labInfoCell("Soil Description:",t.desc,true);
+  const note = t.waterAt ? `<div style="text-align:center;font-weight:bold;font-size:12px;margin:6px 0 0">WATER ADDED AT ${esc(t.waterAt)} KSF</div>` : "";
+  const plot = note + `<div class="plotwrap">${consolSVG(pts)}</div>`;
+  const tbl = `<table class="labtbl"><tr><th>Sample ID</th><th class="l">Soil Type</th><th>Dry Density<br>(pcf)</th><th>Initial<br>Moisture (%)</th><th>Final<br>Moisture (%)</th></tr>
+    <tr><td>${esc(t.sampleId||"—")}${t.depth?esc("@"+t.depth):""}</td><td class="l">${esc(t.desc)}</td>
+    <td>${esc(t.dryDens)}</td><td>${esc(t.initMoist)}</td><td>${esc(t.finalMoist)}</td></tr></table>`;
+  return labSheetWrap("CONSOLIDATION TEST RESULTS","ASTM D2435", cells, plot+tbl);
+}
+
+function consolSVG(pts){
+  const W=720,H=430,L=48,R=16,T=16,Bm=42;
+  /* x: log pressure, default 0.1–10 ksf, extend if data goes beyond */
+  let x0=0.1, x1=10;
+  if(pts.length){
+    const ps=pts.map(r=>r.p);
+    while(Math.min(...ps) < x0-1e-9) x0/=10;
+    while(Math.max(...ps) > x1+1e-9) x1*=10;
+  }
+  const lx0=Math.log10(x0), lx1=Math.log10(x1);
+  const ymax = Math.max(10, Math.ceil(pts.reduce((a,r)=>Math.max(a,r.pc),0)));
+  const x=p=>L+(Math.log10(p)-lx0)/(lx1-lx0)*(W-L-R);
+  const y=v=>T+v/ymax*(H-T-Bm);
+  let g="";
+  for(let dec=Math.round(lx0);dec<Math.round(lx1);dec++){
+    const base=Math.pow(10,dec);
+    for(let m2=1;m2<10;m2++){
+      const d=base*m2; if(d<x0-1e-9||d>x1+1e-9) continue;
+      const maj=(m2===1);
+      g+=`<line x1="${x(d).toFixed(1)}" y1="${T}" x2="${x(d).toFixed(1)}" y2="${H-Bm}" stroke="${maj?"#888":"#e2e2e2"}" stroke-width="${maj?1:0.5}"/>`;
+      if(maj) g+=`<text x="${x(d).toFixed(1)}" y="${H-Bm+14}" font-size="9" text-anchor="middle" fill="#000">${d<1?d.toFixed(1):d}</text>`;
+    }
+  }
+  g+=`<line x1="${x(x1).toFixed(1)}" y1="${T}" x2="${x(x1).toFixed(1)}" y2="${H-Bm}" stroke="#888" stroke-width="1"/>
+      <text x="${x(x1).toFixed(1)}" y="${H-Bm+14}" font-size="9" text-anchor="middle" fill="#000">${x1<1?x1.toFixed(1):x1}</text>`;
+  const step = ymax<=10 ? 1 : ymax<=20 ? 2 : 5;
+  for(let v=0;v<=ymax;v+=step){
+    g+=`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="${v%(step*2)===0?"#888":"#e2e2e2"}" stroke-width="${v%(step*2)===0?1:0.5}"/>
+        <text x="${L-5}" y="${(y(v)+3).toFixed(1)}" font-size="9" text-anchor="end" fill="#000">${v}</text>`;
+  }
+  if(pts.length){
+    const path = pts.map((r,i)=>`${i?"L":"M"}${x(r.p).toFixed(1)},${y(r.pc).toFixed(1)}`).join(" ");
+    g+=`<path d="${path}" fill="none" stroke="#000" stroke-width="2"/>`;
+    pts.forEach(r=>{ g+=`<circle cx="${x(r.p).toFixed(1)}" cy="${y(r.pc).toFixed(1)}" r="3" fill="#fff" stroke="#000" stroke-width="1.4"/>`; });
+  }
+  g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000" stroke-width="1.5"/>
+      <text x="${(L+(W-R))/2}" y="${H-6}" font-size="10" text-anchor="middle" fill="#000">Consolidation Pressure (ksf)</text>
+      <text transform="rotate(-90 11 ${(T+H-Bm)/2})" x="11" y="${(T+H-Bm)/2}" font-size="10" text-anchor="middle" fill="#000">Percent Consolidation (%)</text>`;
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
