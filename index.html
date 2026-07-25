@@ -81,6 +81,8 @@
     border: 1px solid var(--red); border-radius: 4px; font-size: 10px; padding: 2px 7px;
   }
   .rowmini { display: grid; grid-template-columns: 60px 60px 86px 1fr 30px; gap: 6px; margin-bottom: 6px; }
+  .card.sub { border-left: 3px solid #8aa2c8; background: #f7f9fc; margin: 6px 0; }
+  .subhd { font-size: 10.5px; font-weight: 700; color: var(--navy); margin: 8px 0 4px; text-transform: uppercase; letter-spacing: .3px; }
   .hint { font-size: 10px; color: #888; margin: 4px 0 0; }
   .addbtn { width: 100%; background: #fff; color: var(--navy); border-style: dashed; }
 
@@ -147,6 +149,7 @@
   .sym.last { border-bottom: 1px solid #000; }
   .desc-entry { position: absolute; left: 6px; right: 4px; font-size: 10.5px; line-height: 1.3; }
   .desc-entry.rule { border-top: 1px solid #999; padding-top: 1px; }
+  .stmeta { display: block; font-size: 9.5px; font-style: italic; color: #222; }
   .classlbl { position: absolute; width: 100%; text-align: center; font-size: 10px; }
 
   .notes { border-top: 1px solid #000; font-size: 10.5px; }
@@ -310,12 +313,12 @@
     </details>
 
     <details open>
-      <summary>Soil Strata &amp; Descriptions</summary>
+      <summary>Soil Strata, Descriptions &amp; Test Data</summary>
       <div class="sect" id="strataList"></div>
     </details>
 
     <details open>
-      <summary>Samples &amp; Test Data</summary>
+      <summary>Unassigned Samples (depth outside all layers)</summary>
       <div class="sect" id="sampleList"></div>
     </details>
 
@@ -397,6 +400,28 @@ function normalizeTests(){
     if (!Array.isArray(P.tests[k])) P.tests[k] = [];
     ti[k] = Math.min(ti[k] || 0, Math.max(0, P.tests[k].length - 1));
   });
+  /* migrate sieve tests: legacy per-sieve retained weights (wt) -> cumulative (cw),
+     and pad every test out to the full standard sieve stack */
+  P.tests.sieve.forEach(t => {
+    if (!Array.isArray(t.sieves)) { t.sieves = STD_SIEVES.map(s=>({name:s.name,mm:s.mm,cw:""})); return; }
+    const legacy = t.sieves.some(s => s.cw === undefined && s.wt !== undefined);
+    const bymm = {};
+    if (legacy) {
+      let cum = 0;
+      t.sieves.forEach(s => {
+        const w = num(s.wt);
+        if (s.wt !== "" && s.wt !== undefined && w !== null) { cum += w; bymm[s.mm] = String(Math.round(cum*100)/100); }
+      });
+    } else {
+      t.sieves.forEach(s => { if (s.cw !== undefined && s.cw !== "") bymm[s.mm] = s.cw; });
+    }
+    t.sieves = STD_SIEVES.map(s => ({name:s.name, mm:s.mm, cw: bymm[s.mm] ?? ""}));
+  });
+  /* migrate boring samples: ensure sample-ID / test-date fields exist */
+  P.borings.forEach(b => (b.samples||[]).forEach(sm => {
+    if (sm.id === undefined) sm.id = "";
+    if (sm.testDate === undefined) sm.testDate = "";
+  }));
 }
 
 function exampleProject() {
@@ -424,8 +449,8 @@ function exampleProject() {
     ],
     samples:[
       {depth:5,  type:"SPT", lab:"",      blows:"1/3/07",     moist:"10.9", dry:"113.3"},
-      {depth:6.5,type:"R",   lab:"Shear", blows:"7/8/16",     moist:"8.4",  dry:"98.8"},
-      {depth:10, type:"R",   lab:"Shear", blows:"15/21/28",   moist:"4.5",  dry:"104.4"},
+      {depth:6.5,type:"R",   lab:"Shear", blows:"7/8/16",     moist:"8.4",  dry:"98.8", id:"S-1", testDate:"4/6/2015"},
+      {depth:10, type:"R",   lab:"Shear", blows:"15/21/28",   moist:"4.5",  dry:"104.4", id:"S-2", testDate:"4/8/2015"},
       {depth:15, type:"SPT", lab:"",      blows:"6/10/12",    moist:"",     dry:""},
       {depth:20, type:"R",   lab:"",      blows:"13/30/50-6\"", moist:"",   dry:""},
       {depth:25, type:"SPT", lab:"",      blows:"10/11/16",   moist:"",     dry:""},
@@ -451,14 +476,13 @@ function exampleProject() {
     ],
     eiMeta: { date:"4/6/2015", by:"TGH", remarks:"Specimens remolded and tested per ASTM D4829 at ~50% saturation." },
     sieve: [
+      /* accumulated (cumulative) weight retained, like the Excel workbook */
       { sampleId:"S-1", boring:"B-4", depth:"6.5", desc:"Silty fine-medium sand (SM)", date:"4/6/2015", by:"TGH",
         totalWt:"500.0",
         sieves:[
-          {name:'3"',mm:75,wt:""},{name:'2"',mm:50,wt:""},{name:'1½"',mm:37.5,wt:""},
-          {name:'1"',mm:25,wt:""},{name:'¾"',mm:19,wt:""},{name:'½"',mm:12.5,wt:""},
-          {name:'⅜"',mm:9.5,wt:"0.0"},{name:"#4",mm:4.75,wt:"10.0"},{name:"#8",mm:2.36,wt:"25.0"},
-          {name:"#16",mm:1.18,wt:"40.0"},{name:"#30",mm:0.6,wt:"60.0"},{name:"#50",mm:0.3,wt:"90.0"},
-          {name:"#100",mm:0.15,wt:"120.0"},{name:"#200",mm:0.075,wt:"80.0"}
+          {name:'⅜"',mm:9.5,cw:"0.0"},{name:"#4",mm:4.75,cw:"10.0"},{name:"#8",mm:2.36,cw:"35.0"},
+          {name:"#16",mm:1.18,cw:"75.0"},{name:"#30",mm:0.6,cw:"135.0"},{name:"#50",mm:0.3,cw:"225.0"},
+          {name:"#100",mm:0.15,cw:"345.0"},{name:"#200",mm:0.075,cw:"425.0"}
         ] }
     ],
     proctor: [
@@ -519,26 +543,25 @@ function renderForm() {
   document.querySelectorAll("#panel [data-p]").forEach(el => { el.value = P[el.dataset.p] ?? ""; });
   document.querySelectorAll("#panel [data-k]").forEach(el => { el.value = B()[el.dataset.k] ?? ""; });
 
-  document.getElementById("strataList").innerHTML = B().strata.map((st,i)=>`
-    <div class="card">
-      <button class="del" onclick="B().strata.splice(${i},1);touch();renderAll()">✕</button>
-      <div class="rowmini" style="grid-template-columns:56px 56px 92px 92px 56px;">
-        <div class="field"><label>Top ft</label><input type="number" step="0.1" value="${st.top}" oninput="B().strata[${i}].top=num(this.value)??0;renderPreview()"></div>
-        <div class="field"><label>Bottom ft</label><input type="number" step="0.1" value="${st.bottom}" oninput="B().strata[${i}].bottom=num(this.value)??0;renderPreview()"></div>
-        <div class="field"><label>USCS</label><select onchange="B().strata[${i}].uscs=this.value;renderPreview()">${opts(USCS,st.uscs)}</select></div>
-        <div class="field"><label>Symbol</label><select onchange="B().strata[${i}].pattern=this.value;renderPreview()">${opts(PATTERNS,st.pattern||"auto")}</select></div>
-        <div class="field"><label>Label @ ft</label><input type="number" step="0.1" value="${st.classAt??""}" oninput="B().strata[${i}].classAt=this.value;renderPreview()"></div>
-      </div>
-      <div class="field"><label>Description</label>
-        <textarea rows="2" oninput="B().strata[${i}].desc=this.value;renderPreview()">${esc(st.desc)}</textarea></div>
-    </div>`).join("") +
-    `<button class="addbtn" onclick="B().strata.push({top:'',bottom:'',uscs:'',pattern:'auto',classAt:'',desc:''});touch();renderAll()">+ Add Stratum</button>`;
+  /* assign each sample to the layer whose depth range contains it (same rule as the printed log) */
+  const strata = B().strata, samples = B().samples;
+  const maxBottom = Math.max(...strata.map(s=>num(s.bottom)??-Infinity), -Infinity);
+  const layerOf = d => {
+    if (d === null) return -1;
+    for (let k=0;k<strata.length;k++){
+      const t=num(strata[k].top), bo=num(strata[k].bottom);
+      if (t===null||bo===null||bo<=t) continue;
+      if (d>=t && (d<bo || (d===bo && bo===maxBottom))) return k;
+    }
+    return -1;
+  };
+  const sampleAssign = samples.map(sm => layerOf(num(sm.depth)));
 
-  document.getElementById("sampleList").innerHTML = B().samples.map((sm,i)=>`
-    <div class="card">
+  const sampleCard = (sm,i) => `
+    <div class="card sub">
       <button class="del" onclick="B().samples.splice(${i},1);touch();renderAll()">✕</button>
       <div class="rowmini" style="grid-template-columns:56px 64px 76px 1fr;">
-        <div class="field"><label>Depth ft</label><input type="number" step="0.5" value="${sm.depth}" oninput="B().samples[${i}].depth=num(this.value)??0;renderPreview()"></div>
+        <div class="field"><label>Depth ft</label><input type="number" step="0.5" value="${sm.depth}" oninput="B().samples[${i}].depth=num(this.value)??0;renderPreview()" onchange="renderForm()"></div>
         <div class="field"><label>Type</label><select onchange="B().samples[${i}].type=this.value;renderPreview()">${opts(SAMPLE_TYPES,sm.type)}</select></div>
         <div class="field"><label>Lab Testing</label><input value="${esc(sm.lab)}" oninput="B().samples[${i}].lab=this.value;renderPreview()"></div>
         <div class="field"><label>Blows / 6 in</label><input value="${esc(sm.blows)}" oninput="B().samples[${i}].blows=this.value;renderPreview()"></div>
@@ -547,8 +570,41 @@ function renderForm() {
         <div class="field"><label>Moisture %</label><input value="${esc(sm.moist)}" oninput="B().samples[${i}].moist=this.value;renderPreview()"></div>
         <div class="field"><label>Dry Unit Wt (pcf)</label><input value="${esc(sm.dry)}" oninput="B().samples[${i}].dry=this.value;renderPreview()"></div>
       </div>
-    </div>`).join("") +
-    `<button class="addbtn" onclick="B().samples.push({depth:'',type:'SPT',lab:'',blows:'',moist:'',dry:''});touch();renderAll()">+ Add Sample</button>`;
+      <div class="rowmini" style="grid-template-columns:1fr 1fr;">
+        <div class="field"><label>Sample ID</label><input value="${esc(sm.id||"")}" oninput="B().samples[${i}].id=this.value;renderPreview()"></div>
+        <div class="field"><label>Test Date</label><input value="${esc(sm.testDate||"")}" oninput="B().samples[${i}].testDate=this.value;renderPreview()"></div>
+      </div>
+    </div>`;
+
+  document.getElementById("strataList").innerHTML = strata.map((st,i)=>{
+    const mine = samples.map((sm,j)=>({sm,j})).filter(x=>sampleAssign[x.j]===i)
+      .sort((a,z)=>(num(a.sm.depth)??0)-(num(z.sm.depth)??0));
+    const preDepth = num(st.top)!==null ? num(st.top) : "''";
+    return `
+    <div class="card">
+      <button class="del" onclick="B().strata.splice(${i},1);touch();renderAll()">✕</button>
+      <div class="rowmini" style="grid-template-columns:56px 56px 92px 92px 56px;">
+        <div class="field"><label>Top ft</label><input type="number" step="0.1" value="${st.top}" oninput="B().strata[${i}].top=num(this.value)??0;renderPreview()" onchange="renderForm()"></div>
+        <div class="field"><label>Bottom ft</label><input type="number" step="0.1" value="${st.bottom}" oninput="B().strata[${i}].bottom=num(this.value)??0;renderPreview()" onchange="renderForm()"></div>
+        <div class="field"><label>USCS</label><select onchange="B().strata[${i}].uscs=this.value;renderPreview()">${opts(USCS,st.uscs)}</select></div>
+        <div class="field"><label>Symbol</label><select onchange="B().strata[${i}].pattern=this.value;renderPreview()">${opts(PATTERNS,st.pattern||"auto")}</select></div>
+        <div class="field"><label>Label @ ft</label><input type="number" step="0.1" value="${st.classAt??""}" oninput="B().strata[${i}].classAt=this.value;renderPreview()"></div>
+      </div>
+      <div class="field"><label>Description</label>
+        <textarea rows="2" oninput="B().strata[${i}].desc=this.value;renderPreview()">${esc(st.desc)}</textarea></div>
+      <div class="subhd">Samples &amp; Test Data in this Layer (${st.top}–${st.bottom} ft)</div>
+      ${mine.map(x=>sampleCard(x.sm,x.j)).join("") || `<p class="hint" style="margin:2px 0 4px">No samples in this layer yet.</p>`}
+      <button class="addbtn" style="font-size:11px;padding:4px" onclick="B().samples.push({depth:${preDepth},type:'SPT',lab:'',blows:'',moist:'',dry:'',id:'',testDate:''});touch();renderAll()">+ Add Sample in this Layer</button>
+    </div>`;}).join("") +
+    `<button class="addbtn" onclick="B().strata.push({top:'',bottom:'',uscs:'',pattern:'auto',classAt:'',desc:''});touch();renderAll()">+ Add Stratum</button>`;
+
+  const orphans = samples.map((sm,j)=>({sm,j})).filter(x=>sampleAssign[x.j]===-1);
+  document.getElementById("sampleList").innerHTML =
+    (orphans.length
+      ? `<p class="hint" style="margin:0 0 6px">These samples don't fall inside any layer. Fix the sample depth or the layer ranges and they'll move into their layer's card above.</p>` +
+        orphans.map(x=>sampleCard(x.sm,x.j)).join("")
+      : `<p class="hint" style="margin:0 0 6px">None — every sample sits inside a layer and is shown in its layer's card above.</p>`) +
+    `<button class="addbtn" onclick="B().samples.push({depth:'',type:'SPT',lab:'',blows:'',moist:'',dry:'',id:'',testDate:''});touch();renderAll()">+ Add Sample</button>`;
 
   document.getElementById("noteList").innerHTML = B().depthNotes.map((n,i)=>`
     <div class="card">
@@ -676,6 +732,27 @@ function renderSheets(b) {
         ${label5 ? `<b>${f}</b>` : ""}${whole ? "&mdash;" : "-"}</div>`;
     }
 
+    /* all test data for the samples that fall inside a layer, printed under its description */
+    const maxBottom = Math.max(...b.strata.map(s=>num(s.bottom)??-Infinity), -Infinity);
+    const stMeta = st => {
+      const t = num(st.top), bo = num(st.bottom);
+      if (t === null || bo === null || bo <= t) return "";
+      const inLayer = b.samples.filter(sm => {
+        const d = num(sm.depth);
+        return d !== null && d >= t && (d < bo || (d === bo && bo === maxBottom));
+      }).sort((a,z)=>num(a.depth)-num(z.depth));
+      return inLayer.map(sm => {
+        const parts = [
+          `<b>${esc(sm.id || (esc(sm.type)+" @ "+sm.depth+"′"))}</b>${sm.id?` (${esc(sm.type)} @ ${sm.depth}′)`:""}`,
+          sm.blows ? `Blows: ${esc(sm.blows)}` : "",
+          sm.moist ? `Moist: ${esc(sm.moist)}%` : "",
+          sm.dry   ? `Dry Wt: ${esc(sm.dry)} pcf` : "",
+          sm.lab   ? `Lab: ${esc(sm.lab)}` : "",
+          sm.testDate ? `Test Date: ${esc(sm.testDate)}` : ""
+        ].filter(Boolean);
+        return `<span class="stmeta">${parts.join(" · ")}</span>`;
+      }).join("");
+    };
     b.strata.forEach(st => {
       const t = num(st.top), bo = num(st.bottom);
       if (t === null || bo === null || bo <= t) {
@@ -693,8 +770,9 @@ function renderSheets(b) {
       const labelD = num(st.classAt) ?? t;
       if (st.uscs && st.uscs !== "AC/Pavement" && st.uscs !== "Fill" && inPage(labelD))
         body += `<div class="classlbl" style="left:${xs[6]}px; width:${xs[7]-xs[6]}px; top:${Y(labelD)+2}px">${esc(st.uscs)}</div>`;
-      if (st.desc && inPage(t))
-        body += `<div class="desc-entry" style="left:${xs[8]+6}px; top:${Y(Math.max(t,d0))+2}px; width:${812-76-xs[8]-10}px">${md(st.desc)}</div>`;
+      const meta = stMeta(st);
+      if ((st.desc || meta) && inPage(t))
+        body += `<div class="desc-entry" style="left:${xs[8]+6}px; top:${Y(Math.max(t,d0))+2}px; width:${812-76-xs[8]-10}px">${md(st.desc)}${meta}</div>`;
     });
 
     b.depthNotes.forEach(n => {
@@ -778,11 +856,11 @@ function renderAll(){
 }
 function loadExample(){
   if (!confirm("Replace the current project with the example project?")) return;
-  P = exampleProject(); bi = 0; fileHandle = null; dirty = false; clearDraft(); renderAll();
+  P = exampleProject(); bi = 0; fileHandle = null; dirty = false; clearDraft(); normalizeTests(); renderAll();
 }
 function newProject(){
   if (!confirm("Start a new empty project? (Save first if you have unsaved changes.)")) return;
-  P = blankProject(); bi = 0; fileHandle = null; dirty = false; clearDraft(); renderAll();
+  P = blankProject(); bi = 0; fileHandle = null; dirty = false; clearDraft(); normalizeTests(); renderAll();
 }
 
 /* ---------------- project file open / save ---------------- */
@@ -893,15 +971,21 @@ function updateModUI(){
 }
 
 /* ---------- blank test factories ---------- */
+/* Full U.S. standard stack, matching the SME Excel gradation workbook.
+   Coarse section: 6" – #4.  Fines section: #8 – #270. */
 const STD_SIEVES = [
-  {name:'3"',mm:75},{name:'2"',mm:50},{name:'1½"',mm:37.5},{name:'1"',mm:25},
-  {name:'¾"',mm:19},{name:'½"',mm:12.5},{name:'⅜"',mm:9.5},{name:"#4",mm:4.75},
-  {name:"#8",mm:2.36},{name:"#16",mm:1.18},{name:"#30",mm:0.6},{name:"#50",mm:0.3},
-  {name:"#100",mm:0.15},{name:"#200",mm:0.075}
+  {name:'6"',mm:150},{name:'4"',mm:100},{name:'3"',mm:75},{name:'2½"',mm:63},
+  {name:'2"',mm:50},{name:'1¾"',mm:45},{name:'1½"',mm:37.5},{name:'1¼"',mm:31.5},
+  {name:'1"',mm:25},{name:'⅞"',mm:22.4},{name:'¾"',mm:19},{name:'⅝"',mm:16},
+  {name:'½"',mm:12.5},{name:'⅜"',mm:9.5},{name:'¼"',mm:6.3},{name:"#4",mm:4.75},
+  {name:"#8",mm:2.36},{name:"#10",mm:2.0},{name:"#16",mm:1.18},{name:"#20",mm:0.85},
+  {name:"#30",mm:0.6},{name:"#40",mm:0.425},{name:"#50",mm:0.3},{name:"#60",mm:0.25},
+  {name:"#80",mm:0.18},{name:"#100",mm:0.15},{name:"#140",mm:0.106},{name:"#170",mm:0.09},
+  {name:"#200",mm:0.075},{name:"#270",mm:0.053}
 ];
 function blankEIRow(){ return {sampleId:"",boring:"",depth:"",desc:"",moldMoist:"",dryDens:"",finalMoist:"",h0:"1.000",dial0:"0.0000",dial1:""}; }
 function blankSieveTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",totalWt:"",
-  sieves:STD_SIEVES.map(s=>({name:s.name,mm:s.mm,wt:""}))}; }
+  sieves:STD_SIEVES.map(s=>({name:s.name,mm:s.mm,cw:""}))}; }
 function blankProctorTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",method:"ASTM D1557",prep:"Method A",
   moldWt:"",moldVol:"0.03333",Gs:"2.70",points:[0,1,2,3].map(()=>({gross:"",wet:"",dry:"",tare:"",wdir:""}))}; }
 function blankShearTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",dia:"2.416",
@@ -925,32 +1009,62 @@ function eiCalc(r){
 }
 
 function sieveCalc(t){
-  const used = t.sieves.filter(s=>s.wt!=="" && num(s.wt)!==null);
-  const sumRet = used.reduce((a,s)=>a+num(s.wt),0);
-  const tot = num(t.totalWt);
-  const total = (tot && tot>0) ? tot : (sumRet>0 ? sumRet : null);
-  if(!total) return {rows:[], pan:null, total:null, d60:null,d30:null,d10:null,cu:null,cc:null,gravel:null,sand:null,fines:null};
-  const rows=[]; let cum=0;
+  /* Input is ACCUMULATED (cumulative) weight retained at each sieve, like the SME Excel workbook. */
+  const meas = [];
   t.sieves.forEach(s=>{
-    if(s.wt==="" || num(s.wt)===null) return;
-    cum += num(s.wt);
-    rows.push({name:s.name, mm:s.mm, wt:num(s.wt), cum, pass: Math.max(0, 100 - cum/total*100)});
+    const c = num(s.cw);
+    if(s.cw!=="" && s.cw!==undefined && c!==null) meas.push({name:s.name, mm:s.mm, cum:c});
+  });
+  const maxCum = meas.length ? Math.max(...meas.map(m=>m.cum)) : 0;
+  const tot = num(t.totalWt);
+  const total = (tot && tot>0) ? tot : (maxCum>0 ? maxCum : null);
+  const empty = {rows:[], all:[], pan:null, total:null, d60:null,d30:null,d10:null,cu:null,cc:null,gravel:null,sand:null,fines:null};
+  if(!total || !meas.length) return empty;
+  const rows = meas.map((m,i)=>({
+    name:m.name, mm:m.mm, cum:m.cum,
+    wt: m.cum - (i ? meas[i-1].cum : 0),
+    pass: Math.min(100, Math.max(0, 100 - m.cum/total*100))
+  }));
+  /* interpolated % passing at any opening, matching the workbook's
+     "Interpolated Cumulative Percent Passing": 100% above the coarsest measured
+     sieve, linear (in sieve size) between measured sieves, unknown below the finest. */
+  const passAtMM = mm => {
+    if(mm >= rows[0].mm - 1e-9) return (Math.abs(mm-rows[0].mm)<1e-9) ? rows[0].pass : 100;
+    for(const r of rows) if(Math.abs(r.mm-mm)<1e-9) return r.pass;
+    for(let i=0;i<rows.length-1;i++){
+      const a=rows[i], b=rows[i+1];
+      if(mm<a.mm && mm>b.mm){
+        const f=(a.mm-mm)/(a.mm-b.mm);
+        return a.pass + f*(b.pass-a.pass);
+      }
+    }
+    return null;
+  };
+  const all = t.sieves.map(s=>{
+    const c = num(s.cw), actual = (s.cw!=="" && s.cw!==undefined && c!==null);
+    return {name:s.name, mm:s.mm, cum:actual?c:null, pass:passAtMM(s.mm), actual};
   });
   const D = X => {
     for(let i=0;i<rows.length-1;i++){
       const a=rows[i], b=rows[i+1];
       if(a.pass>=X && b.pass<=X){
         if(a.pass===b.pass) return b.mm;
-        const f=(X-b.pass)/(a.pass-b.pass);
-        return Math.pow(10, Math.log10(b.mm)+f*(Math.log10(a.mm)-Math.log10(b.mm)));
+        const f=(a.pass-X)/(a.pass-b.pass);
+        return a.mm - f*(a.mm-b.mm);   /* linear in size, like the workbook */
       }
+    }
+    /* below the finest measured sieve: log-linear extrapolation from the last segment */
+    const last=rows[rows.length-1], prev=rows[rows.length-2];
+    if(prev && last && X<last.pass && prev.pass>last.pass){
+      const slope=(Math.log10(prev.mm)-Math.log10(last.mm))/(prev.pass-last.pass);
+      const mm=Math.pow(10, Math.log10(last.mm)-(last.pass-X)*slope);
+      return (mm>0.0005 && mm<last.mm) ? mm : null;
     }
     return null;
   };
   const d60=D(60), d30=D(30), d10=D(10);
-  const passAt = mm => { const r=rows.find(x=>Math.abs(x.mm-mm)<1e-9); return r?r.pass:null; };
-  const p4=passAt(4.75), p200=passAt(0.075);
-  return { rows, pan: total-cum, total, d60, d30, d10,
+  const p4=passAtMM(4.75), p200=passAtMM(0.075);
+  return { rows, all, pan: total-maxCum, total, d60, d30, d10,
     cu: (d60&&d10)?d60/d10:null,
     cc: (d60&&d30&&d10)?d30*d30/(d10*d60):null,
     gravel: p4===null?null:100-p4,
@@ -1092,15 +1206,22 @@ function eiPanel(){
 
 function sievePanel(){
   const t=CT();
+  const inp = (s,j)=>`
+    <div class="field"><label>${esc(s.name)} · ${s.mm} mm</label>
+      <input value="${esc(s.cw)}" oninput="CT().sieves[${j}].cw=this.value;renderPreview()"></div>`;
+  const coarse = t.sieves.map((s,j)=>({s,j})).filter(x=>x.s.mm>=4.75);
+  const fines  = t.sieves.map((s,j)=>({s,j})).filter(x=>x.s.mm<4.75);
   return sampleInfoBlock() +
   `<details open><summary>Weights</summary><div class="sect grid2">
     ${tf("Total Dry Sample Wt (g)","totalWt")}
   </div></details>
-  <details open><summary>Weight Retained on Each Sieve (g) — blank = sieve not used</summary><div class="sect"><div class="grid3">` +
-  t.sieves.map((s,j)=>`
-    <div class="field"><label>${esc(s.name)} · ${s.mm} mm</label>
-      <input value="${esc(s.wt)}" oninput="CT().sieves[${j}].wt=this.value;renderPreview()"></div>`).join("") +
-  `</div><p class="hint">Enter 0 for a sieve in the stack with nothing retained. Percent passing, gradation curve, gravel/sand/fines split, D₆₀/D₃₀/D₁₀, Cu and Cc are computed automatically.</p></div></details>`;
+  <details open><summary>Accumulated Weight Retained (g) — cumulative down the stack; blank = not measured</summary><div class="sect">
+    <p class="hint" style="margin-top:0"><b>Coarse Section (6" – #4)</b></p>
+    <div class="grid3">` + coarse.map(x=>inp(x.s,x.j)).join("") + `</div>
+    <p class="hint"><b>Fines Section (#8 – #270)</b></p>
+    <div class="grid3">` + fines.map(x=>inp(x.s,x.j)).join("") + `</div>
+    <p class="hint">Enter the <b>accumulated</b> (running-total) weight retained at each sieve — each value includes everything caught on the coarser sieves above it, exactly like the Excel gradation workbook. Sieves left blank are interpolated on the sheet. Percent passing, gradation curve, gravel/sand/fines split, D₆₀/D₃₀/D₁₀, Cu and Cc are computed automatically.</p>
+  </div></details>`;
 }
 
 function proctorPanel(){
@@ -1221,23 +1342,28 @@ function sieveSheet(t){
   const res = `<div class="resbox">Gravel: <b>${fnum(c.gravel,1)}%</b> &nbsp; Sand: <b>${fnum(c.sand,1)}%</b> &nbsp; Fines (−#200): <b>${fnum(c.fines,1)}%</b>
     &nbsp;|&nbsp; D<sub>60</sub>=${fnum(c.d60,3)} &nbsp; D<sub>30</sub>=${fnum(c.d30,3)} &nbsp; D<sub>10</sub>=${fnum(c.d10,3)} mm
     &nbsp;|&nbsp; C<sub>u</sub>=${fnum(c.cu,2)} &nbsp; C<sub>c</sub>=${fnum(c.cc,2)}</div>`;
-  const tbl = `<table class="labtbl"><tr><th>Sieve</th><th>Opening (mm)</th><th>Wt Retained (g)</th><th>Cum. Retained (g)</th><th>Percent Passing (%)</th></tr>` +
-    (c.rows.length ? c.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.mm}</td><td>${fnum(r.wt,1)}</td><td>${fnum(r.cum,1)}</td><td><b>${fnum(r.pass,1)}</b></td></tr>`).join("")
-      + (c.pan!==null?`<tr><td>Pan</td><td>—</td><td>${fnum(c.pan,1)}</td><td>${fnum(c.total,1)}</td><td>—</td></tr>`:"")
-    : `<tr><td colspan="5">Enter sieve weights in the left panel.</td></tr>`) + `</table>`;
+  const half = list => `<table class="labtbl"><tr><th>Sieve<br>US</th><th>Size<br>(mm)</th><th>Cum. Wt<br>Ret. (g)</th><th>Actual<br>% Pass</th><th>Interp.<br>% Pass</th></tr>` +
+    list.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.mm}</td><td>${r.actual?fnum(r.cum,1):"—"}</td><td>${r.actual?`<b>${fnum(r.pass,1)}</b>`:"—"}</td><td style="color:#555">${r.pass===null?"—":fnum(r.pass,1)}</td></tr>`).join("") + `</table>`;
+  const tbl = c.all.length
+    ? `<div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1">${half(c.all.filter(s=>s.mm>=4.75))}</div>
+        <div style="flex:1">${half(c.all.filter(s=>s.mm<4.75))}
+          ${c.pan!==null?`<p class="labrem" style="margin-top:4px">Pan: ${fnum(c.pan,1)} g &nbsp;·&nbsp; Total: ${fnum(c.total,1)} g</p>`:""}</div>
+       </div>`
+    : `<table class="labtbl"><tr><td>Enter accumulated sieve weights in the left panel.</td></tr></table>`;
   return labSheetWrap("PARTICLE SIZE DISTRIBUTION","ASTM D6913 / ASTM C136", cells, plot+res+tbl);
 }
 
 function sieveSVG(rows){
   const W=720,H=330,L=44,R=14,T=26,Bm=40;
-  const lx=Math.log10(100), ln=Math.log10(0.01);
+  const lx=Math.log10(1000), ln=Math.log10(0.01);
   const x=d=>L+(lx-Math.log10(d))/(lx-ln)*(W-L-R);
   const y=p=>T+(100-p)/100*(H-T-Bm);
   let g="";
-  for(let dec=2;dec>=-2;dec--){
+  for(let dec=3;dec>=-2;dec--){
     const base=Math.pow(10,dec);
     for(let m2=1;m2<10;m2++){
-      const d=base*m2; if(d>100.001||d<0.00999) continue;
+      const d=base*m2; if(d>1000.001||d<0.00999) continue;
       const maj=(m2===1);
       g+=`<line x1="${x(d).toFixed(1)}" y1="${T}" x2="${x(d).toFixed(1)}" y2="${H-Bm}" stroke="${maj?"#888":"#e2e2e2"}" stroke-width="${maj?1:0.5}"/>`;
       if(maj) g+=`<text x="${x(d).toFixed(1)}" y="${H-Bm+13}" font-size="9" text-anchor="middle" fill="#000">${d}</text>`;
@@ -1247,9 +1373,10 @@ function sieveSVG(rows){
     g+=`<line x1="${L}" y1="${y(p).toFixed(1)}" x2="${W-R}" y2="${y(p).toFixed(1)}" stroke="${p%20===0?"#888":"#e2e2e2"}" stroke-width="${p%20===0?1:0.5}"/>
         <text x="${L-5}" y="${(y(p)+3).toFixed(1)}" font-size="9" text-anchor="end" fill="#000">${p}</text>`;
   }
-  [4.75,0.075].forEach(d=>{ g+=`<line x1="${x(d).toFixed(1)}" y1="${T}" x2="${x(d).toFixed(1)}" y2="${H-Bm}" stroke="#000" stroke-width="1.2" stroke-dasharray="5 3"/>`; });
+  [75,4.75,0.075].forEach(d=>{ g+=`<line x1="${x(d).toFixed(1)}" y1="${T}" x2="${x(d).toFixed(1)}" y2="${H-Bm}" stroke="#000" stroke-width="1.2" stroke-dasharray="5 3"/>`; });
   const zx=(a,b)=>((x(a)+x(b))/2).toFixed(1);
-  g+=`<text x="${zx(100,4.75)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">GRAVEL</text>
+  g+=`<text x="${zx(1000,75)}" y="${T-8}" font-size="9" font-weight="bold" text-anchor="middle" fill="#000">COBBLES</text>
+      <text x="${zx(75,4.75)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">GRAVEL</text>
       <text x="${zx(4.75,0.075)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">SAND</text>
       <text x="${zx(0.075,0.01)}" y="${T-8}" font-size="10" font-weight="bold" text-anchor="middle" fill="#000">SILT / CLAY</text>`;
   if(rows.length){
