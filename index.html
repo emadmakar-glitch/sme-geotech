@@ -67,6 +67,8 @@
   .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 10px; }
   .field { display: flex; flex-direction: column; gap: 2px; }
   .field label { font-size: 10px; font-weight: bold; color: #555; }
+  label.sievelbl { font-size: 14px; font-weight: 700; color: var(--navy); }
+  label.sievelbl .mmsz { font-size: 10.5px; font-weight: 400; color: #888; }
   .field input, .field select, .field textarea {
     font: 12px Arial; padding: 5px 6px; border: 1px solid #c3c9d6; border-radius: 4px; width: 100%;
   }
@@ -1207,7 +1209,7 @@ function eiPanel(){
 function sievePanel(){
   const t=CT();
   const inp = (s,j)=>`
-    <div class="field"><label>${esc(s.name)} · ${s.mm} mm</label>
+    <div class="field"><label class="sievelbl">${esc(s.name)} <span class="mmsz">· ${s.mm} mm</span></label>
       <input value="${esc(s.cw)}" oninput="CT().sieves[${j}].cw=this.value;renderPreview()"></div>`;
   const coarse = t.sieves.map((s,j)=>({s,j})).filter(x=>x.s.mm>=4.75);
   const fines  = t.sieves.map((s,j)=>({s,j})).filter(x=>x.s.mm<4.75);
