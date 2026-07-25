@@ -418,6 +418,9 @@ function normalizeTests(){
       t.sieves.forEach(s => { if (s.cw !== undefined && s.cw !== "") bymm[s.mm] = s.cw; });
     }
     t.sieves = STD_SIEVES.map(s => ({name:s.name, mm:s.mm, cw: bymm[s.mm] ?? ""}));
+    if (t.finesType === undefined) t.finesType = "";
+    if (t.LL === undefined) t.LL = "";
+    if (t.PI === undefined) t.PI = "";
   });
   /* migrate boring samples: ensure sample-ID / test-date fields exist */
   P.borings.forEach(b => (b.samples||[]).forEach(sm => {
@@ -987,6 +990,7 @@ const STD_SIEVES = [
 ];
 function blankEIRow(){ return {sampleId:"",boring:"",depth:"",desc:"",moldMoist:"",dryDens:"",finalMoist:"",h0:"1.000",dial0:"0.0000",dial1:""}; }
 function blankSieveTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",totalWt:"",
+  finesType:"", LL:"", PI:"",
   sieves:STD_SIEVES.map(s=>({name:s.name,mm:s.mm,cw:""}))}; }
 function blankProctorTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",method:"ASTM D1557",prep:"Method A",
   moldWt:"",moldVol:"0.03333",Gs:"2.70",points:[0,1,2,3].map(()=>({gross:"",wet:"",dry:"",tare:"",wdir:""}))}; }
@@ -1072,6 +1076,52 @@ function sieveCalc(t){
     gravel: p4===null?null:100-p4,
     sand: (p4!==null&&p200!==null)?p4-p200:null,
     fines: p200 };
+}
+
+/* USCS classification per ASTM D2487 from gradation + fines character */
+function uscsClassify(t, c){
+  if(c.fines===null || c.gravel===null || c.sand===null) return null;
+  const F=c.fines, G=c.gravel, S=c.sand;
+  const LL=num(t.LL), PI=num(t.PI);
+  const aboveA = (LL!==null&&PI!==null) ? PI >= 0.73*(LL-20) : null;
+  let fc=null;                                  /* fines character: M, C, or CM */
+  if(t.finesType==="np") fc="M";
+  else if(t.finesType==="clay") fc="C";
+  else if(t.finesType==="llpi" && LL!==null && PI!==null){
+    if(PI>7 && aboveA) fc="C"; else if(PI<4 || !aboveA) fc="M"; else fc="CM";
+  }
+  const cap = s => s.charAt(0).toUpperCase()+s.slice(1);
+  if(F>=50){                                    /* fine-grained */
+    if(LL===null||PI===null) return {sym:"—", name:"Fine-grained soil (≥50% fines) — enter LL and PI to classify"};
+    let sym,name;
+    if(LL<50){
+      if(PI>7 && aboveA){sym="CL";name="lean clay";}
+      else if(PI<4 || !aboveA){sym="ML";name="silt";}
+      else {sym="CL-ML";name="silty clay";}
+    } else { if(aboveA){sym="CH";name="fat clay";} else {sym="MH";name="elastic silt";} }
+    const coarse=100-F;
+    if(coarse>=30) name=(G>S?"gravelly ":"sandy ")+name;
+    else if(coarse>=15) name+= (G>S?" with gravel":" with sand");
+    return {sym, name:cap(name)};
+  }
+  const P = G>S ? "G":"S", pn = G>S ? "gravel":"sand", other = G>S ? S : G, otherName = G>S ? "sand":"gravel";
+  const wg = (c.cu!==null&&c.cc!==null) ? (c.cu>=(P==="G"?4:6) && c.cc>=1 && c.cc<=3) : null;
+  const tail = other>=15 ? " and "+otherName : "";
+  if(F<5){
+    if(wg===null) return {sym:P+"W / "+P+"P", name:"Clean "+pn+" — D-sizes incomplete, measure more sieves to grade"};
+    return {sym:P+(wg?"W":"P"), name:cap((wg?"well-graded ":"poorly graded ")+pn)+(other>=15?" with "+otherName:"")};
+  }
+  if(!fc) return {sym:"—", name:"Select the fines character (silty / clayey / LL-PI) to classify"};
+  if(F>12){
+    const sym = fc==="CM" ? P+"C-"+P+"M" : P+fc;
+    const nm = fc==="C" ? "clayey " : fc==="M" ? "silty " : "silty, clayey ";
+    return {sym, name:cap(nm+pn)+(other>=15?" with "+otherName:"")};
+  }
+  /* 5–12% fines: dual symbol */
+  if(wg===null) return {sym:"—", name:"Borderline fines (5–12%) — D-sizes incomplete, measure more sieves to grade"};
+  const g1=P+(wg?"W":"P"), f1=fc==="C"?P+"C":P+"M";
+  return {sym:g1+"-"+f1,
+    name:cap((wg?"well-graded ":"poorly graded ")+pn)+(fc==="C"?" with clay":" with silt")+tail};
 }
 
 function solve3(A,b){
@@ -1217,6 +1267,18 @@ function sievePanel(){
   `<details open><summary>Weights</summary><div class="sect grid2">
     ${tf("Total Dry Sample Wt (g)","totalWt")}
   </div></details>
+  <details open><summary>USCS Classification (ASTM D2487)</summary><div class="sect">
+    <div class="grid3">
+      <div class="field"><label>Fines Character</label><select onchange="CT().finesType=this.value;renderAll()">
+        <option value="" ${t.finesType===""?"selected":""}>— select —</option>
+        <option value="np" ${t.finesType==="np"?"selected":""}>Silty (non-plastic)</option>
+        <option value="clay" ${t.finesType==="clay"?"selected":""}>Clayey</option>
+        <option value="llpi" ${t.finesType==="llpi"?"selected":""}>From LL / PI</option>
+      </select></div>
+      ${tf("Liquid Limit LL","LL")}${tf("Plasticity Index PI","PI")}
+    </div>
+    <p class="hint">The USCS group symbol and name are computed from the gradation (gravel/sand/fines, Cu, Cc) per ASTM D2487 — the system Caltrans uses — and printed on the sheet. Gradation alone can't tell silt from clay, so pick the fines character like the checkboxes in the Excel workbook, or choose "From LL / PI" and enter Atterberg results for the full A-line check.</p>
+  </div></details>
   <details open><summary>Accumulated Weight Retained (g) — cumulative down the stack; blank = not measured</summary><div class="sect">
     <p class="hint" style="margin-top:0"><b>Coarse Section (6" – #4)</b></p>
     <div class="grid3">` + coarse.map(x=>inp(x.s,x.j)).join("") + `</div>
@@ -1341,9 +1403,11 @@ function sieveSheet(t){
     +labInfoCell("Tested By:",t.by)+labInfoCell("Total Dry Wt (g):",t.totalWt)
     +labInfoCell("Soil Description:",t.desc,true);
   const plot = `<div class="plotwrap">${sieveSVG(c.rows)}</div>`;
+  const cls = uscsClassify(t, c);
   const res = `<div class="resbox">Gravel: <b>${fnum(c.gravel,1)}%</b> &nbsp; Sand: <b>${fnum(c.sand,1)}%</b> &nbsp; Fines (−#200): <b>${fnum(c.fines,1)}%</b>
     &nbsp;|&nbsp; D<sub>60</sub>=${fnum(c.d60,3)} &nbsp; D<sub>30</sub>=${fnum(c.d30,3)} &nbsp; D<sub>10</sub>=${fnum(c.d10,3)} mm
-    &nbsp;|&nbsp; C<sub>u</sub>=${fnum(c.cu,2)} &nbsp; C<sub>c</sub>=${fnum(c.cc,2)}</div>`;
+    &nbsp;|&nbsp; C<sub>u</sub>=${fnum(c.cu,2)} &nbsp; C<sub>c</sub>=${fnum(c.cc,2)}</div>` +
+    (cls ? `<div class="resbox">USCS Classification (ASTM D2487): <b>${esc(cls.sym)}</b> — ${esc(cls.name)}</div>` : "");
   const half = list => `<table class="labtbl"><tr><th>Sieve<br>US</th><th>Size<br>(mm)</th><th>Cum. Wt<br>Ret. (g)</th><th>Actual<br>% Pass</th><th>Interp.<br>% Pass</th></tr>` +
     list.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.mm}</td><td>${r.actual?fnum(r.cum,1):"—"}</td><td>${r.actual?`<b>${fnum(r.pass,1)}</b>`:"—"}</td><td style="color:#555">${r.pass===null?"—":fnum(r.pass,1)}</td></tr>`).join("") + `</table>`;
   const tbl = c.all.length
