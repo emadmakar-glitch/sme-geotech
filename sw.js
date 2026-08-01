@@ -1,5 +1,5 @@
 /* SME Geotech Suite — offline cache */
-const CACHE = "sme-geotech-v8";
+const CACHE = "sme-geotech-v9";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {

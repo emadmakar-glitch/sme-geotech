@@ -252,6 +252,7 @@
       <span class="mod" data-mod="proctor" onclick="setMod('proctor')">Proctor</span>
       <span class="mod" data-mod="shear" onclick="setMod('shear')">Direct Shear</span>
       <span class="mod" data-mod="consol" onclick="setMod('consol')">Consolidation</span>
+      <span class="mod" data-mod="liq" onclick="setMod('liq')">Liquefaction</span>
     </div>
 
     <div class="btnrow">
@@ -372,7 +373,7 @@ const DKEY = "sme-geotech-draft-v1";
 let P = null;          // project (one file per job)
 let bi = 0;            // active boring index
 let mod = "boring";    // active module: boring | ei | sieve | proctor | shear
-let ti = { sieve:0, proctor:0, shear:0, consol:0 };  // active test index per lab module
+let ti = { sieve:0, proctor:0, shear:0, consol:0, liq:0 };  // active test index per lab module
 let fileHandle = null; // File System Access API handle
 let dirty = false;
 let draftTimer = null;
@@ -394,7 +395,7 @@ function blankProject() {
     app:"sme-geotech", version:1,
     client:"", projectNo:"", location:"",
     borings:[blankBoring()],
-    tests:{ ei:[], eiMeta:{date:"",by:"",remarks:""}, sieve:[], proctor:[], shear:[], consol:[] }
+    tests:{ ei:[], eiMeta:{date:"",by:"",remarks:""}, sieve:[], proctor:[], shear:[], consol:[], liq:[] }
   };
 }
 
@@ -403,7 +404,7 @@ function normalizeTests(){
   P.tests = Object.assign(base, P.tests || {});
   if (!Array.isArray(P.tests.ei)) P.tests.ei = [];
   if (!P.tests.eiMeta) P.tests.eiMeta = {date:"",by:"",remarks:""};
-  ["sieve","proctor","shear","consol"].forEach(k => {
+  ["sieve","proctor","shear","consol","liq"].forEach(k => {
     if (!Array.isArray(P.tests[k])) P.tests[k] = [];
     ti[k] = Math.min(ti[k] || 0, Math.max(0, P.tests[k].length - 1));
   });
@@ -510,6 +511,18 @@ function exampleProject() {
         dia:"2.416", condition:"Consolidated Drained — saturated", rate:"0.005 in/min",
         moist:"8.4", dens:"98.8", inputMode:"stress",
         rows:[ {a:"1000", b:"620"}, {a:"2000", b:"1150"}, {a:"4000", b:"2210"} ] }
+    ],
+    liq: [
+      { boring:"B-1", date:"4/10/2015", by:"TGH",
+        gm:"105", gsat:"125", gw:"3", M:"7.2", amax:"0.72",
+        CE:"1.00", CB:"1.05", CR:"0.75", CS:"1.20", msf:"1.15",
+        rows:[
+          {depth:"3", Nm:"13", fines:"3", top:"2",  bottom:"4"},
+          {depth:"5", Nm:"47", fines:"2", top:"4",  bottom:"6"},
+          {depth:"7", Nm:"40", fines:"3", top:"6",  bottom:"8"},
+          {depth:"9", Nm:"40", fines:"4", top:"8",  bottom:"10"},
+          {depth:"11",Nm:"37", fines:"4", top:"10", bottom:"12"}
+        ] }
     ],
     consol: [
       { sampleId:"C-1", boring:"B-4", depth:"5", desc:"Light brown poorly graded sand (SP)", date:"4/9/2015", by:"TGH",
@@ -971,7 +984,8 @@ document.addEventListener("keydown", e => {
 
 /* ================= LAB TEST MODULES ================= */
 const MODNAMES = { boring:"Boring Logs", ei:"Expansion Index", sieve:"Sieve Analysis",
-                   proctor:"Proctor Compaction", shear:"Direct Shear", consol:"Consolidation" };
+                   proctor:"Proctor Compaction", shear:"Direct Shear", consol:"Consolidation",
+                   liq:"Liquefaction & Seismic Settlement" };
 const fnum = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(d);
 function CT(){ return P.tests[mod][ti[mod]]; }
 
@@ -1012,7 +1026,11 @@ function blankShearTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"
 function blankConsolTest(){ return {sampleId:"",boring:"",depth:"",desc:"",date:"",by:"",
   dryDens:"", initMoist:"", finalMoist:"", waterAt:"2.0",
   rows:[{p:"",pc:""},{p:"",pc:""},{p:"",pc:""},{p:"",pc:""}]}; }
-const BLANKS = { sieve:blankSieveTest, proctor:blankProctorTest, shear:blankShearTest, consol:blankConsolTest };
+function blankLiqTest(){ return {boring:"",date:"",by:"",
+  gm:"105", gsat:"125", gw:"3", M:"7.2", amax:"0.72",
+  CE:"1.00", CB:"1.05", CR:"0.75", CS:"1.20", msf:"",
+  rows:[0,1,2,3].map(()=>({depth:"",Nm:"",fines:"",top:"",bottom:""}))}; }
+const BLANKS = { sieve:blankSieveTest, proctor:blankProctorTest, shear:blankShearTest, consol:blankConsolTest, liq:blankLiqTest };
 
 function addTest(){ P.tests[mod].push(BLANKS[mod]()); ti[mod]=P.tests[mod].length-1; touch(); renderAll(); }
 function dupTest(){ const c=JSON.parse(JSON.stringify(CT())); c.sampleId=(c.sampleId||"Test")+" copy";
@@ -1237,7 +1255,7 @@ function renderLabPanel(){
   if(mod==="ei"){ lp.innerHTML=eiPanel(); return; }
   let body="";
   if(P.tests[mod].length)
-    body = mod==="sieve"?sievePanel():mod==="proctor"?proctorPanel():mod==="consol"?consolPanel():shearPanel();
+    body = mod==="sieve"?sievePanel():mod==="proctor"?proctorPanel():mod==="consol"?consolPanel():mod==="liq"?liqPanel():shearPanel();
   lp.innerHTML = `<details open><summary>${MODNAMES[mod]} Tests in this Project</summary>
     <div class="sect">${labTabsHTML()}</div></details>` + body;
 }
@@ -1374,6 +1392,222 @@ function consolPanel(){
    <p class="hint">Enter the readings in the order the test ran: loading points, the water-added collapse (repeat the same pressure with the larger % consolidation), further loading, then the rebound/unload points back down. The curve is drawn point-to-point in this order, so the loading branch and rebound branch come out exactly like the Excel/Geocon figure. The "Water Added At" pressure prints as the note above the chart.</p></div></details>`;
 }
 
+/* ================= LIQUEFACTION & SEISMIC SETTLEMENT (SP 117A / NCEER) ================= */
+function liqCalc(t){
+  const gm=num(t.gm)??105, gs=num(t.gsat)??125, gw=num(t.gw)??0;
+  const M=num(t.M)??7.5, amax=num(t.amax)??0;
+  const CE=num(t.CE)??1, CB=num(t.CB)??1, CR=num(t.CR)??1, CS=num(t.CS)??1;
+  const msf = num(t.msf)!==null ? num(t.msf) : Math.pow(7.5/M, 3.3);
+  const Pa=2089;
+  const sig  = z => z<=gw ? gm*z : gm*gw + gs*(z-gw);
+  const sigE = z => sig(z) - (z>gw ? 62.4*(z-gw) : 0);
+  const rdF = zft => { const z=zft*0.3048;
+    return z<=9.15 ? 1-0.00765*z : Math.max(0.5, 1.174-0.0267*z); };
+  const blake = x => {   /* CRR7.5 base curve (Blake, in SP117 Implementation Report) */
+    if(x>=30) return null;                       /* not considered liquefiable */
+    const a=0.048,b=-0.1248,c=-0.004721,d=0.009578,e=0.0006136,f=-0.0003285,g=-1.673e-5,h=3.714e-6;
+    return Math.max(0.05,(a+c*x+e*x*x+g*x**3)/(1+b*x+d*x*x+f*x**3+h*x**4));
+  };
+  const alphaBeta = fc => fc<=5 ? [0,1] : fc>=35 ? [5,1.2]
+    : [Math.exp(1.76-190/(fc*fc)), 0.99+Math.pow(fc,1.5)/1000];
+  /* post-liquefaction volumetric strain (%) vs (N1)60cs — digitized from Fig. 7.11 (Tokimatsu & Seed) */
+  const EV=[[0,10],[2.5,5],[4,4],[7,3],[14,2],[28,1],[31,0.5],[33.5,0.2],[36,0]];
+  const evOf = n => { if(n>=36) return 0;
+    for(let i=0;i<EV.length-1;i++) if(n>=EV[i][0]&&n<=EV[i+1][0]){
+      const f=(n-EV[i][0])/(EV[i+1][0]-EV[i][0]); return EV[i][1]+f*(EV[i+1][1]-EV[i][1]); }
+    return 10; };
+  /* magnitude ratio for dry-sand volumetric strain — Table 1 (Tokimatsu & Seed) */
+  const MR=[[5.25,0.4],[6,0.6],[6.75,0.85],[7.5,1.0],[8.5,1.25]];
+  const mRatio = m => { if(m<=MR[0][0]) return MR[0][1]; if(m>=MR[4][0]) return MR[4][1];
+    for(let i=0;i<4;i++) if(m>=MR[i][0]&&m<=MR[i+1][0]){
+      const f=(m-MR[i][0])/(MR[i+1][0]-MR[i][0]); return MR[i][1]+f*(MR[i+1][1]-MR[i][1]); }
+    return 1; };
+
+  const rows = t.rows.map(r=>({depth:num(r.depth), Nm:num(r.Nm), fines:num(r.fines)??0,
+      top:num(r.top), bottom:num(r.bottom)}))
+    .filter(r=>r.depth!==null && r.depth>0 && r.Nm!==null)
+    .sort((a,b)=>a.depth-b.depth)
+    .map(r=>{
+      const s0=sig(r.depth), s0e=sigE(r.depth);
+      const CN=Math.min(2, Math.max(0.4, Math.sqrt(Pa/Math.max(1,s0e))));
+      const N160=r.Nm*CN*CE*CB*CR*CS;
+      const [al,be]=alphaBeta(r.fines);
+      const N160cs=al+be*N160;
+      const rd=rdF(r.depth);
+      const csr = s0e>0 ? 0.65*(s0/s0e)*rd*amax : null;
+      const crr75=blake(N160cs);
+      const NL = crr75===null;
+      const crrM = NL ? null : crr75*msf;
+      const fs = (!NL && csr) ? crrM/csr : null;
+      return Object.assign(r,{s0,s0e,CN,N160,al,be,N160cs,rd,csr,crr75,NL,crrM,fs,
+        csr75: csr!==null ? csr/msf : null});
+    });
+
+  /* layers: each SPT row owns [top,bottom]; split at groundwater into dry / saturated parts */
+  const dry=[], sat=[];
+  rows.forEach((r,i)=>{
+    const top=r.top??null, bot=r.bottom??null;
+    if(top===null||bot===null||bot<=top) return;
+    if(top<gw){                                    /* dry portion above groundwater */
+      const b2=Math.min(bot,gw), H=b2-top, zc=(top+b2)/2;
+      const s0=sig(zc), s0e=sigE(zc);
+      const Gmax=20*Math.pow(r.N160,1/3)*Math.sqrt(Math.max(1,s0e));      /* ksf */
+      const rd=rdF(zc);
+      const X=0.65*amax*s0*rd/(Gmax*1000);         /* γeff·(Geff/Gmax) */
+      const stsf=s0e/2000;                          /* σ0' in tsf */
+      const gr=5.24e-4*Math.sqrt(Math.max(0.02,stsf));   /* hyperbolic fit to Fig. 2 */
+      const geff = X<gr ? X/(1-X/gr) : 1e-2;
+      const gpct=geff*100;
+      const ec75=Math.min(10, 72.1*Math.pow(gpct,1.05)*Math.pow(Math.max(1,r.N160),-1.37)); /* fit to Fig. 3 */
+      const ecM=ec75*mRatio(M);
+      const set=2*ecM/100*H*12;
+      dry.push({i:i+1,top,bot:b2,H,zc,s0,s0e,Nm:r.Nm,N160:r.N160,Gmax,rd,X,geff,ec75,ecM,set});
+    }
+    if(bot>gw){                                    /* saturated portion below groundwater */
+      const t2=Math.max(top,gw), H=bot-t2;
+      const ev = (r.NL || r.N160cs>=36) ? 0 : (r.fs!==null && r.fs<1.0 ? evOf(r.N160cs) : 0);
+      const set=ev/100*H*12;
+      sat.push({i:i+1,top:t2,bot,H,N160:r.N160,fines:r.fines,al:r.al,be:r.be,N160cs:r.N160cs,
+        csr:r.csr,csr75:r.csr75,ev,set,fs:r.fs,NL:r.NL});
+    }
+  });
+  return {rows, dry, sat, msf, M, amax, gw, gm, gs,
+    dryTotal: dry.reduce((a,l)=>a+l.set,0), satTotal: sat.reduce((a,l)=>a+l.set,0)};
+}
+
+function liqPanel(){
+  const t=CT();
+  return `<details open><summary>Sample Information</summary><div class="sect"><div class="grid3">
+    ${tf("Boring","boring")}${tf("Date","date")}${tf("Analyzed By","by")}
+  </div></div></details>
+  <details open><summary>Site &amp; Seismic Parameters</summary><div class="sect"><div class="grid3">
+    ${tf("Moist Unit Wt (pcf)","gm")}${tf("Sat. Unit Wt (pcf)","gsat")}${tf("Groundwater (ft)","gw")}
+    ${tf("Magnitude Mw","M")}${tf("PGA amax (g)","amax")}${tf("MSF (blank = auto)","msf")}
+  </div><p class="hint">MSF defaults to (7.5/Mw)^3.3 (≈1.15 at Mw 7.2, like your sample analysis). Type a value to override.</p></div></details>
+  <details open><summary>SPT Correction Factors (SP 117A Table 5.2)</summary><div class="sect"><div class="grid3">
+    ${tf("CE (energy)","CE")}${tf("CB (borehole)","CB")}${tf("CR (rod length)","CR")}
+    ${tf("CS (sampler)","CS")}
+  </div><p class="hint">CN is computed automatically as √(2089/σ′₀) with 0.4 ≤ CN ≤ 2.</p></div></details>
+  <details open><summary>SPT Data — one row per test depth, with its layer range</summary><div class="sect">` +
+  t.rows.map((r,j)=>`<div class="card"><button class="del" onclick="CT().rows.splice(${j},1);touch();renderAll()">✕</button>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="field"><label>SPT Depth (ft)</label><input value="${esc(r.depth)}" oninput="CT().rows[${j}].depth=this.value;renderPreview()"></div>
+      <div class="field"><label>Field N (blows/ft)</label><input value="${esc(r.Nm)}" oninput="CT().rows[${j}].Nm=this.value;renderPreview()"></div>
+      <div class="field"><label>Fines %</label><input value="${esc(r.fines)}" oninput="CT().rows[${j}].fines=this.value;renderPreview()"></div>
+    </div>
+    <div class="rowmini" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Layer Top (ft)</label><input value="${esc(r.top)}" oninput="CT().rows[${j}].top=this.value;renderPreview()"></div>
+      <div class="field"><label>Layer Bottom (ft)</label><input value="${esc(r.bottom)}" oninput="CT().rows[${j}].bottom=this.value;renderPreview()"></div>
+    </div></div>`).join("") +
+  `<button class="addbtn" onclick="CT().rows.push({depth:'',Nm:'',fines:'',top:'',bottom:''});touch();renderAll()">+ Add SPT Point</button>
+   <p class="hint">Each SPT point represents the layer from Top to Bottom. Layers are split automatically at the groundwater table: the part above goes to the DRY-SAND settlement sheet (Tokimatsu &amp; Seed 1987) and the part below to the SATURATED-soil sheet (Fig. 7.11). Three print sheets are produced: the liquefaction table with graphs, and the two settlement tables.</p></div></details>`;
+}
+
+function liqSheet(t){
+  const c=liqCalc(t);
+  const f0=(v,d)=>v===null||v===undefined||isNaN(v)?"—":Number(v).toFixed(d);
+  const cellsA = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Date:",t.date)
+    +labInfoCell("Boring:",t.boring||"—")+labInfoCell("Analyzed By:",t.by)
+    +labInfoCell("Groundwater:",c.gw+" ft")+labInfoCell("Mw / amax:",f0(c.M,1)+" / "+f0(c.amax,2)+" g")
+    +labInfoCell("Unit Weights:","moist "+c.gm+" pcf · sat "+c.gs+" pcf")
+    +labInfoCell("MSF:",f0(c.msf,2));
+  const eq = `<p class="labrem" style="margin:4px 0">C<sub>N</sub>=√(P<sub>a</sub>/σ′₀)≤2, P<sub>a</sub>=2089 psf &nbsp; (N₁)₆₀=N<sub>m</sub>·C<sub>N</sub>·C<sub>E</sub>·C<sub>B</sub>·C<sub>R</sub>·C<sub>S</sub>
+    (C<sub>E</sub>=${esc(t.CE)}, C<sub>B</sub>=${esc(t.CB)}, C<sub>R</sub>=${esc(t.CR)}, C<sub>S</sub>=${esc(t.CS)}) &nbsp;
+    CSR=0.65(σ₀/σ′₀)·r<sub>d</sub>·(a<sub>max</sub>/g) &nbsp; (N₁)₆₀cs=α+β(N₁)₆₀ &nbsp; CRR per SP 117A base curve; (N₁)₆₀cs ≥ 30 → not liquefiable (NL)</p>`;
+  const tblA = `<table class="labtbl" style="font-size:9.5px"><tr><th>Depth<br>(ft)</th><th>σ₀<br>(psf)</th><th>σ′₀<br>(psf)</th><th>N<sub>m</sub></th><th>C<sub>N</sub></th><th>(N₁)₆₀</th><th>Fines<br>%</th><th>(N₁)₆₀cs</th><th>r<sub>d</sub></th><th>CSR<sub>M</sub></th><th>CRR₇.₅</th><th>MSF</th><th>CRR<sub>M</sub></th><th>F.S.</th></tr>` +
+    (c.rows.length ? c.rows.map(r=>`<tr><td>${r.depth}</td><td>${f0(r.s0,0)}</td><td>${f0(r.s0e,1)}</td><td>${r.Nm}</td><td>${f0(r.CN,2)}</td><td>${f0(r.N160,1)}</td><td>${r.fines}</td><td>${f0(r.N160cs,1)}</td><td>${f0(r.rd,2)}</td><td>${f0(r.csr,2)}</td><td>${r.NL?"NL":f0(r.crr75,2)}</td><td>${f0(c.msf,2)}</td><td>${r.NL?"NL":f0(r.crrM,2)}</td><td><b>${r.NL?"NL":f0(r.fs,2)}</b></td></tr>`).join("")
+      : `<tr><td colspan="14">Enter SPT data in the left panel.</td></tr>`) + `</table>`;
+  const charts = c.rows.length ? `<div style="display:flex;gap:8px;justify-content:center;margin-top:6px">
+      ${liqBaseCurveSVG(c)}${liqFSDepthSVG(c)}</div>` : "";
+  const noteA = `<p class="labrem">Note: (N₁)₆₀cs ≥ 30 is not considered liquefiable (NL) per SP 117A Fig. 7.1. r<sub>d</sub> per Youd &amp; Idriss (NCEER). F.S. = CRR<sub>M</sub>/CSR<sub>M</sub>.</p>`;
+  const shA = labSheetWrap("LIQUEFACTION ANALYSIS BY SPT","CGS Special Publication 117A — Simplified Procedure (NCEER)", cellsA, eq+tblA+charts+noteA);
+
+  const cellsB = labInfoCell("Client:",P.client)+labInfoCell("Project No.",P.projectNo)
+    +labInfoCell("Location:",P.location)+labInfoCell("Boring:",t.boring||"—")
+    +labInfoCell("Mw / amax:",f0(c.M,1)+" / "+f0(c.amax,2)+" g")+labInfoCell("Groundwater:",c.gw+" ft");
+  const tblB = `<table class="labtbl" style="font-size:9.5px"><tr><th>Layer</th><th>Top<br>(ft)</th><th>Bottom<br>(ft)</th><th>H<br>(ft)</th><th>σ′₀<br>(psf)</th><th>σ₀<br>(psf)</th><th>N<sub>m</sub></th><th>(N₁)₆₀</th><th>G<sub>max</sub><br>(ksf)</th><th>r<sub>d</sub></th><th>γ<sub>eff</sub>(G<sub>eff</sub>/G<sub>max</sub>)<br>×10⁻⁵</th><th>γ<sub>eff</sub><br>×10⁻⁵</th><th>ε<sub>c,7.5</sub><br>(%)</th><th>ε<sub>c,M</sub><br>(%)</th><th>2ε<sub>c,M</sub><br>(%)</th><th>Settle<br>(in)</th></tr>` +
+    (c.dry.length ? c.dry.map(l=>`<tr><td>${l.i}</td><td>${f0(l.top,1)}</td><td>${f0(l.bot,1)}</td><td>${f0(l.H,1)}</td><td>${f0(l.s0e,0)}</td><td>${f0(l.s0,0)}</td><td>${l.Nm}</td><td>${f0(l.N160,1)}</td><td>${f0(l.Gmax,0)}</td><td>${f0(l.rd,2)}</td><td>${f0(l.X*1e5,1)}</td><td>${f0(l.geff*1e5,0)}</td><td>${f0(l.ec75,3)}</td><td>${f0(l.ecM,3)}</td><td>${f0(2*l.ecM,3)}</td><td><b>${f0(l.set,2)}</b></td></tr>`).join("")
+      + `<tr><td colspan="15" style="text-align:right"><b>TOTAL</b></td><td><b>${f0(c.dryTotal,2)}</b></td></tr>`
+      : `<tr><td colspan="16">No layers above the groundwater table.</td></tr>`) + `</table>`;
+  const mrN = (function(){const MR=[[5.25,0.4],[6,0.6],[6.75,0.85],[7.5,1.0],[8.5,1.25]];const m=c.M;
+    if(m<=5.25)return 0.4; if(m>=8.5)return 1.25;
+    for(let i=0;i<4;i++) if(m>=MR[i][0]&&m<=MR[i+1][0]){const f=(m-MR[i][0])/(MR[i+1][0]-MR[i][0]);return MR[i][1]+f*(MR[i+1][1]-MR[i][1]);}
+    return 1;})();
+  const noteB = `<p class="labrem">Method: Tokimatsu &amp; Seed (1987). G<sub>max</sub>=20(N₁)₆₀^⅓(σ′₀)^½ ksf; γ<sub>eff</sub>(G<sub>eff</sub>/G<sub>max</sub>)=0.65·a<sub>max</sub>·σ₀·r<sub>d</sub>/(g·G<sub>max</sub>); induced strain per Fig. 2; volumetric strain per Fig. 3 at 15 cycles, scaled ×${f0(mrN,3)} for Mw ${f0(c.M,1)} (Table 1); doubled for two horizontal components.</p>`;
+  const shB = labSheetWrap("SEISMICALLY INDUCED SETTLEMENT OF DRY SAND","Tokimatsu & Seed (1987) — Boring "+esc(t.boring||"—"), cellsB, tblB+noteB);
+
+  const tblC = `<table class="labtbl" style="font-size:9.5px"><tr><th>Layer</th><th>Top<br>(ft)</th><th>Bottom<br>(ft)</th><th>H<br>(ft)</th><th>(N₁)₆₀</th><th>Fines<br>%</th><th>α</th><th>β</th><th>(N₁)₆₀cs</th><th>CSR<sub>M</sub></th><th>MSF</th><th>CSR₇.₅</th><th>Vol. Strain<br>(%)</th><th>Settle<br>(in)</th></tr>` +
+    (c.sat.length ? c.sat.map(l=>`<tr><td>${l.i}</td><td>${f0(l.top,1)}</td><td>${f0(l.bot,1)}</td><td>${f0(l.H,1)}</td><td>${f0(l.N160,1)}</td><td>${l.fines}</td><td>${f0(l.al,2)}</td><td>${f0(l.be,2)}</td><td>${f0(l.N160cs,1)}</td><td>${f0(l.csr,2)}</td><td>${f0(c.msf,2)}</td><td>${f0(l.csr75,2)}</td><td>${f0(l.ev,1)}</td><td><b>${f0(l.set,2)}</b></td></tr>`).join("")
+      + `<tr><td colspan="13" style="text-align:right"><b>TOTAL</b></td><td><b>${f0(c.satTotal,2)}</b></td></tr>`
+      : `<tr><td colspan="14">No layers below the groundwater table.</td></tr>`) + `</table>`;
+  const noteC = `<p class="labrem">Method: (N₁)₆₀cs=α+β(N₁)₆₀ (SP 117A Eq. 5–7); volumetric strain of liquefiable layers (F.S.&lt;1) per Fig. 7.11 (Tokimatsu &amp; Seed 1987, saturated clean sands); layers with (N₁)₆₀cs ≥ 30 not considered liquefiable. </p>
+    <div class="resbox">Total Seismically Induced Settlement — Dry: <b>${f0(c.dryTotal,2)} in</b> &nbsp;+&nbsp; Saturated: <b>${f0(c.satTotal,2)} in</b> &nbsp;=&nbsp; <b>${f0(c.dryTotal+c.satTotal,2)} in</b></div>`;
+  const shC = labSheetWrap("SEISMICALLY INDUCED SETTLEMENT OF SATURATED SOILS","Tokimatsu & Seed (1987) / SP 117A — Boring "+esc(t.boring||"—"), cellsB, tblC+noteC);
+  return shA+shB+shC;
+}
+
+/* CRR7.5 base curve with data points, like SP117A Fig. 7.1 */
+function liqBaseCurveSVG(c){
+  const W=350,H=300,L=40,R=10,T=14,Bm=34;
+  const x=n=>L+n/50*(W-L-R), y=v=>T+(0.6-v)/0.6*(H-T-Bm);
+  let g="";
+  for(let n=0;n<=50;n+=10) g+=`<line x1="${x(n)}" y1="${T}" x2="${x(n)}" y2="${H-Bm}" stroke="#ddd"/>
+    <text x="${x(n)}" y="${H-Bm+12}" font-size="8" text-anchor="middle">${n}</text>`;
+  for(let v=0;v<=0.6001;v+=0.1) g+=`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#ddd"/>
+    <text x="${L-4}" y="${(y(v)+3).toFixed(1)}" font-size="8" text-anchor="end">${v.toFixed(1)}</text>`;
+  const blake = xx => {
+    const a=0.048,b=-0.1248,cc=-0.004721,d=0.009578,e=0.0006136,f=-0.0003285,gg=-1.673e-5,h=3.714e-6;
+    return Math.max(0.05,(a+cc*xx+e*xx*xx+gg*xx**3)/(1+b*xx+d*xx*xx+f*xx**3+h*xx**4));
+  };
+  let path="";
+  for(let n=1;n<=29.6;n+=0.4){ const v=Math.min(0.6,blake(n)); path+=`${path?"L":"M"}${x(n).toFixed(1)},${y(v).toFixed(1)} `; }
+  path+=`L${x(30).toFixed(1)},${y(0.6).toFixed(1)}`;
+  g+=`<path d="${path}" fill="none" stroke="#000" stroke-width="1.6"/>`;
+  g+=`<text x="${x(31)}" y="${y(0.42).toFixed(1)}" font-size="8">CRR₇.₅ base curve</text>
+      <text x="${x(31)}" y="${y(0.42)+10}" font-size="8">Liquefaction ⟵ | ⟶ No Liq.</text>`;
+  c.rows.forEach(r=>{
+    if(r.csr75===null) return;
+    const cx=x(Math.min(50,r.N160cs)), cy=y(Math.min(0.6,r.csr75));
+    const liq = !r.NL && r.fs!==null && r.fs<1;
+    g+=`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.4" fill="${liq?"#000":"#fff"}" stroke="#000" stroke-width="1.2"/>`;
+  });
+  g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000"/>
+      <text x="${(L+W-R)/2}" y="${H-4}" font-size="9" text-anchor="middle">Corrected Blow Count, (N₁)₆₀cs</text>
+      <text transform="rotate(-90 10 ${(T+H-Bm)/2})" x="10" y="${(T+H-Bm)/2}" font-size="9" text-anchor="middle">CSR₇.₅ / CRR₇.₅</text>
+      <text x="${(L+W-R)/2}" y="${T-3}" font-size="8.5" text-anchor="middle" font-weight="bold">● liquefiable &nbsp; ○ non-liquefiable</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
+/* factor of safety vs depth */
+function liqFSDepthSVG(c){
+  const W=350,H=300,L=40,R=12,T=14,Bm=34;
+  const dmax=Math.max(20, ...c.rows.map(r=>r.depth+2));
+  const FSmax=2;
+  const x=v=>L+Math.min(v,FSmax)/FSmax*(W-L-R), y=d=>T+d/dmax*(H-T-Bm);
+  let g="";
+  for(let v=0;v<=FSmax+0.001;v+=0.5) g+=`<line x1="${x(v).toFixed(1)}" y1="${T}" x2="${x(v).toFixed(1)}" y2="${H-Bm}" stroke="#ddd"/>
+    <text x="${x(v).toFixed(1)}" y="${H-Bm+12}" font-size="8" text-anchor="middle">${v.toFixed(1)}</text>`;
+  for(let d=0;d<=dmax;d+=5) g+=`<line x1="${L}" y1="${y(d).toFixed(1)}" x2="${W-R}" y2="${y(d).toFixed(1)}" stroke="#ddd"/>
+    <text x="${L-4}" y="${(y(d)+3).toFixed(1)}" font-size="8" text-anchor="end">${d}</text>`;
+  g+=`<line x1="${x(1).toFixed(1)}" y1="${T}" x2="${x(1).toFixed(1)}" y2="${H-Bm}" stroke="#000" stroke-width="1.2" stroke-dasharray="5 3"/>
+      <text x="${x(1).toFixed(1)}" y="${T-3}" font-size="8.5" text-anchor="middle">F.S. = 1.0</text>`;
+  if(c.gw>0 && c.gw<dmax)
+    g+=`<line x1="${L}" y1="${y(c.gw).toFixed(1)}" x2="${W-R}" y2="${y(c.gw).toFixed(1)}" stroke="#4a6fa5" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="${W-R-2}" y="${(y(c.gw)-2).toFixed(1)}" font-size="8" text-anchor="end" fill="#4a6fa5">▽ GW ${c.gw} ft</text>`;
+  const pts=c.rows.filter(r=>r.fs!==null||r.NL).map(r=>({d:r.depth, v:r.NL?FSmax:Math.min(r.fs,FSmax), NL:r.NL, liq:!r.NL&&r.fs<1}));
+  if(pts.length>1){
+    const path=pts.map((p,i)=>`${i?"L":"M"}${x(p.v).toFixed(1)},${y(p.d).toFixed(1)}`).join(" ");
+    g+=`<path d="${path}" fill="none" stroke="#000" stroke-width="1.6"/>`;
+  }
+  pts.forEach(p=>{ g+=`<circle cx="${x(p.v).toFixed(1)}" cy="${y(p.d).toFixed(1)}" r="3.4" fill="${p.liq?"#000":"#fff"}" stroke="#000" stroke-width="1.2"/>`;
+    if(p.NL) g+=`<text x="${(x(p.v)-8).toFixed(1)}" y="${(y(p.d)+3).toFixed(1)}" font-size="7.5" text-anchor="end">NL→</text>`; });
+  g+=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="none" stroke="#000"/>
+      <text x="${(L+W-R)/2}" y="${H-4}" font-size="9" text-anchor="middle">Factor of Safety Against Liquefaction</text>
+      <text transform="rotate(-90 10 ${(T+H-Bm)/2})" x="10" y="${(T+H-Bm)/2}" font-size="9" text-anchor="middle">Depth (ft)</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
 /* ---------- sheets ---------- */
 function labLetterhead(){
   return `<div class="lh"><img src="${LOGO}" alt="SM Engineering"><div class="co">
@@ -1405,6 +1639,7 @@ function labSheetFor(m,i){
   return m==="sieve" ? sieveSheet(P.tests.sieve[i])
        : m==="proctor" ? proctorSheet(P.tests.proctor[i])
        : m==="consol" ? consolSheet(P.tests.consol[i])
+       : m==="liq" ? liqSheet(P.tests.liq[i])
        : shearSheet(P.tests.shear[i]);
 }
 
